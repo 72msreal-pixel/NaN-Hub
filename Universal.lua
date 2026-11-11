@@ -1,4 +1,4 @@
--- If you're struggling with coding, feel free to use this source, and you can join my Discord to learn and improve your coding skills together with us: discord.gg/gFC9eqRKA
+-- If you're struggling with coding, feel free to use this source, and you can join my Discord to learn and improve your coding skills together with us 😚: discord.gg/gFC9eqRKA
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
