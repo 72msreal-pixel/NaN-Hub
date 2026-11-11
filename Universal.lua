@@ -3087,7 +3087,26 @@ local OpenButtonConfig = {
 
 Window:EditOpenButton(OpenButtonConfig)
 
-Window:Tag({ Title = "v0.2.1", Icon = "cog", Color = Color3.fromHex("#30ff6a") })
+Window:Tag({
+    Title = "v0.2.1",
+    Icon = "cog",
+    Color = WindUI:Gradient({
+        ["0"] = {
+            Color = "#8B5CF6",
+            Transparency = 0
+        },
+        ["50"] = {
+            Color = "#6366F1",
+            Transparency = 0
+        },
+        ["100"] = {
+            Color = "#06B6D4",
+            Transparency = 0
+        },
+    }, {
+        Rotation = 45
+    }),
+})
 
 local Tabs = {
     About    = Window:Section({ Title = "loc:About", Opened = true }),
