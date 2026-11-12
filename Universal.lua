@@ -1052,7 +1052,7 @@ function Main.camNext()
 end
 
 function Main.camRelease()
-    Main.camTarget, Main.camCF = nil, nil
+    Main.camTarget, Main.camCF, Main.camSeen = nil, nil, nil
 end
 
 function Main.camUpdateQuick()
@@ -1182,14 +1182,17 @@ function Main.camToggle(on)
             return
         end
 
-        local t = Main.camTarget
-        if not (Main.camValid(t) and Main.camInFov(t, 1.15)) then
+        local t, now = Main.camTarget, os.clock()
+        local valid = Main.camValid(t)
+        if valid and Main.camInFov(t, 1.15) then Main.camSeen = now end
+
+        if not (valid and now - (Main.camSeen or 0) < 0.5) then
             t = Main.camNearest()
             if not t then
                 Main.camRelease()
                 return
             end
-            Main.camTarget = t
+            Main.camTarget, Main.camSeen = t, now
         end
 
         local zoom = (cam.CFrame.Position - cam.Focus.Position).Magnitude
