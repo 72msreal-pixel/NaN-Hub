@@ -1010,9 +1010,12 @@ function Main.camInFov(root, margin)
     if not Main.camFov then return true end
     local cam = Main.cam()
     if not cam then return false end
-    local v, onScreen = cam:WorldToViewportPoint(root.Position)
-    if not onScreen then return false end
-    return (Vector2.new(v.X, v.Y) - cam.ViewportSize / 2).Magnitude <= Main.camRadius * (margin or 1)
+
+    local rel = (Main.camCF or cam.CFrame):PointToObjectSpace(root.Position)
+    if rel.Z >= 0 then return false end
+
+    local focal = cam.ViewportSize.Y / 2 / math.tan(math.rad(cam.FieldOfView) / 2)
+    return Vector2.new(rel.X, rel.Y).Magnitude / -rel.Z * focal <= Main.camRadius * (margin or 1)
 end
 
 function Main.camTargets()
