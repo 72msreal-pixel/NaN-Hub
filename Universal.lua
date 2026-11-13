@@ -45,7 +45,6 @@ ESP = {
     Config = {
         MaxDistance = 500,
         UpdateInterval = 0.12,
-        MaxChamParts = 25,
     },
     Cache = {
         ViewSize = Camera.ViewportSize,
@@ -132,8 +131,6 @@ function ESP:BuildChams(d)
     local List = {}
 
     for _, Part in ipairs(Pool) do
-        if #List >= self.Config.MaxChamParts then break end
-
         if Part:IsA("BasePart") and Part.Name ~= "HumanoidRootPart" and Part.Transparency < 1 then
             List[#List + 1] = self.New("BoxHandleAdornment", {
                 Adornee = Part,
@@ -3928,19 +3925,63 @@ Main.cfgDrop = Sections.Config:Dropdown({
     Callback = function(v) Main.cfgSel = v end,
 })
 
-for _, b in ipairs({
-    { "Create Config", "Saves your current settings as a new config using the name you typed above.", "file-plus", "Created", "Name", Main.cfgSave },
-    { "Load Config", "Applies the settings saved in the selected config.", "folder-open", "Loaded", "Selected", Main.cfgLoad },
-    { "Overwrite Config", "Replaces the selected config with your current settings.", "save", "Overwritten", "Selected", Main.cfgSave },
-    { "Delete Config", "Permanently deletes the selected config. This can't be undone.", "trash-2", "Deleted", "Selected", Main.cfgDelete },
-}) do
-    Sections.Config:Button({
-        Title = b[1],
-        Desc = b[2],
-        Icon = b[3],
-        Callback = function() Main.cfgRun(b[4], b[5], b[6]) end,
-    })
-end
+Sections.Config:Button({
+    Title = "Create Config",
+    Desc = "Saves your current settings as a new config using the name you typed above.",
+    Icon = "file-plus",
+    Callback = function() Main.cfgRun("Created", "Name", Main.cfgSave) end,
+})
+
+Sections.Config:Button({
+    Title = "Load Config",
+    Desc = "Applies the settings saved in the selected config.",
+    Icon = "folder-open",
+    Callback = function() Main.cfgRun("Loaded", "Selected", Main.cfgLoad) end,
+})
+
+Sections.Config:Button({
+    Title = "Overwrite Config",
+    Desc = "Replaces the selected config with your current settings.",
+    Icon = "save",
+    Callback = function()
+        local name = Main.cfgTarget("Selected")
+        if not name then return Main.notify("Config", "Select a config first", "x") end
+
+        Window:Dialog({
+            Title = "Overwrite Config",
+            Content = 'Replace "' .. name .. '" with your current settings?',
+            Icon = "save",
+            Buttons = {
+                { Title = "Cancel", Variant = "Secondary", Callback = function() end },
+                { Title = "Overwrite", Variant = "Primary", Callback = function()
+                    Main.cfgRun("Overwritten", "Selected", Main.cfgSave)
+                end },
+            },
+        })
+    end,
+})
+
+Sections.Config:Button({
+    Title = "Delete Config",
+    Desc = "Permanently deletes the selected config. This can't be undone.",
+    Icon = "trash-2",
+    Callback = function()
+        local name = Main.cfgTarget("Selected")
+        if not name then return Main.notify("Config", "Select a config first", "x") end
+
+        Window:Dialog({
+            Title = "Delete Config",
+            Content = 'Delete "' .. name .. '"? This can\'t be undone.',
+            Icon = "trash-2",
+            Buttons = {
+                { Title = "Cancel", Variant = "Secondary", Callback = function() end },
+                { Title = "Delete", Variant = "Primary", Callback = function()
+                    Main.cfgRun("Deleted", "Selected", Main.cfgDelete)
+                end },
+            },
+        })
+    end,
+})
 
 Main.cfgReload()
 
