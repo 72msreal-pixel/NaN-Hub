@@ -565,6 +565,8 @@ local Main = {
         Clothes = { "Accessory", "Shirt", "Pants", "ShirtGraphic" },
         Decal = { "Decal", "Texture" },
     },
+    inpTouches = {}, inpHitch = 0.2, inpDue = nil,
+    inpLive = { [Enum.UserInputState.Begin] = true, [Enum.UserInputState.Change] = true },
     bpOn = false, bpRespawning = false, bpTracks = {},
     bpStateAnim = {
         [Enum.HumanoidStateType.Freefall] = "fall",
@@ -2159,6 +2161,58 @@ UserInputService.JumpRequest:Connect(function()
     local _, hum = Main.char()
     if Main.mvInfJump and not Main.mvMode and hum then
         hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    end
+end)
+
+function Main.inpCount()
+    local n = 0
+    for i in pairs(Main.inpTouches) do
+        if Main.inpLive[i.UserInputState] then
+            n += 1
+        else
+            Main.inpTouches[i] = nil
+        end
+    end
+    return n
+end
+
+function Main.inpResetControls(module)
+    local controls = require(module):GetControls()
+    controls:Disable()
+    controls:Enable()
+end
+
+function Main.inpResetCamera(module)
+    local input = require(module.CameraModule.CameraInput)
+    input.setInputEnabled(false)
+    input.setInputEnabled(true)
+end
+
+function Main.inpReset()
+    local scripts = localPlayer:FindFirstChild("PlayerScripts")
+    local module = scripts and scripts:FindFirstChild("PlayerModule")
+    if not module then return end
+
+    for _, step in ipairs({ Main.inpResetControls, Main.inpResetCamera }) do
+        pcall(step, module)
+    end
+end
+
+Main.listen("InputTouchBegan", true, UserInputService.InputBegan, function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then Main.inpTouches[input] = true end
+end)
+
+Main.listen("InputTouchEnded", true, UserInputService.InputEnded, function(input)
+    Main.inpTouches[input] = nil
+end)
+
+Main.listen("InputGuard", true, RunService.Heartbeat, function(dt)
+    local now = os.clock()
+    if dt > Main.inpHitch then Main.inpDue = now + 0.15 end
+
+    if Main.inpDue and now >= Main.inpDue and Main.inpCount() == 0 then
+        Main.inpDue = nil
+        Main.inpReset()
     end
 end)
 
