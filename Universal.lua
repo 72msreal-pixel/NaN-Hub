@@ -45,6 +45,8 @@ ESP = {
     Config = {
         MaxDistance = 500,
         UpdateInterval = 0.12,
+        ChamLimit = 30,
+        ChamRecheck = 1,
     },
     Cache = {
         ViewSize = Camera.ViewportSize,
@@ -131,6 +133,7 @@ function ESP:BuildChams(d)
     local List = {}
 
     for _, Part in ipairs(Pool) do
+        if #List >= self.Config.ChamLimit then break end
         if Part:IsA("BasePart") and Part.Name ~= "HumanoidRootPart" and Part.Transparency < 1 then
             List[#List + 1] = self.New("BoxHandleAdornment", {
                 Adornee = Part,
@@ -151,11 +154,16 @@ function ESP:AllocateDrawings(d)
     local Draw = d.Drawings
 
     if S.UseHighlight then
-        local Signature = C.Humanoid and #C.Adornee:GetChildren() or 0
+        local Now = os.clock()
 
-        if C.ChamTarget ~= C.Adornee or C.ChamSignature ~= Signature then
-            C.ChamTarget, C.ChamSignature = C.Adornee, Signature
-            self:BuildChams(d)
+        if C.ChamTarget ~= C.Adornee or Now >= (C.ChamCheck or 0) then
+            C.ChamCheck = Now + self.Config.ChamRecheck
+            local Signature = C.Humanoid and #C.Adornee:GetChildren() or 0
+
+            if C.ChamTarget ~= C.Adornee or C.ChamSignature ~= Signature then
+                C.ChamTarget, C.ChamSignature = C.Adornee, Signature
+                self:BuildChams(d)
+            end
         end
     end
 
@@ -1408,7 +1416,7 @@ function Main.toolDiscover()
     local n = 0
     for _, obj in ipairs(getgc(true)) do
         n += 1
-        if n % 1500 == 0 then task.wait() end
+        if n % 500 == 0 then task.wait() end
         if type(obj) == "table" then
             local found = {}
             for k, v in pairs(obj) do
@@ -1810,10 +1818,8 @@ function Main.flipStop(all)
 
     local hum, root = Main.flipHum, Main.flipRoot
     if root and root.Parent then
-        -- dựng thẳng người lại, giữ nguyên vị trí và vận tốc
         root.CFrame = CFrame.new(root.Position) * (Main.flipRot or CFrame.identity)
         root.AssemblyAngularVelocity = Vector3.zero
-        -- bỏ vận tốc ngang của flip để không bị trượt/văng sau khi tiếp đất
         local v = root.AssemblyLinearVelocity
         root.AssemblyLinearVelocity = Vector3.new(0, math.min(v.Y, 0), 0)
     end
@@ -1835,8 +1841,6 @@ function Main.flipRun(dir)
     local face = Vector3.new(look.X, 0, look.Z)
     face = face.Magnitude > 0.01 and face.Unit or Vector3.new(0, 0, -1)
 
-    -- thời gian flip = thời gian bay thật (tính từ độ cao nhảy + trọng lực)
-    -- nên xoay đúng 1 vòng trong lúc bay và quãng đường luôn đúng bằng Flip Distance
     local jump = math.sqrt(2 * Workspace.Gravity * Main.flipHeight)
     local airtime = 2 * jump / Workspace.Gravity
 
@@ -1845,7 +1849,6 @@ function Main.flipRun(dir)
     local omega = -dir * math.pi * 2 / airtime
     local drift = face * (Main.flipDist * dir / airtime)
 
-    -- raycast kiểm tra chạm đất: loại trừ bản thân (kể cả nhân vật giả của Bypass)
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Exclude
     params.RespectCanCollide = true
@@ -1856,7 +1859,6 @@ function Main.flipRun(dir)
     Main.flipStand = hum.PlatformStand
     hum.PlatformStand = true
 
-    -- xung lực nhảy lên, phần còn lại để vật lý/trọng lực lo
     local v = root.AssemblyLinearVelocity
     root.AssemblyLinearVelocity = Vector3.new(drift.X, math.max(v.Y, 0) + jump, drift.Z)
 
@@ -1868,11 +1870,9 @@ function Main.flipRun(dir)
         local now = os.clock() - started
         local vel = root.AssemblyLinearVelocity
 
-        -- di chuyển bình thường: cộng hướng người chơi điều khiển, Y do trọng lực quyết định
         local move = hum.MoveDirection * hum.WalkSpeed
         root.AssemblyLinearVelocity = Vector3.new(drift.X + move.X, vel.Y, drift.Z + move.Z)
 
-        -- xoay đúng 1 vòng, không đụng vào vị trí nên vẫn va chạm thật
         if angle < math.pi * 2 then
             root.AssemblyAngularVelocity = axis * omega
             angle += math.abs(omega) * dt
@@ -1880,7 +1880,6 @@ function Main.flipRun(dir)
             root.AssemblyAngularVelocity = Vector3.zero
         end
 
-        -- chỉ kết thúc khi chạm đất (hoặc quá giờ), không kết thúc sớm giữa không trung
         local landed = now > airtime * 0.5 and vel.Y <= 1
             and Workspace:Raycast(root.Position, Vector3.new(0, -reach, 0), params) ~= nil
 
@@ -2275,8 +2274,17 @@ function Main.espClass:Sync()
         self.Active = true
         if self.OnEnable then self.OnEnable() end
 
-        for _, o in ipairs(self.Source.Pool(self.Scoped)) do self:Add(o) end
         self.Connection = self.Source.Signal():Connect(function(o) self:Add(o) end)
+
+        task.spawn(function()
+            local n = 0
+            for _, o in ipairs(self.Source.Pool(self.Scoped)) do
+                if not self.Active then return end
+                self:Add(o)
+                n += 1
+                if n % 300 == 0 then task.wait() end
+            end
+        end)
 
     elseif not self.Wanted and self.Active then
         self.Active = false
@@ -2522,13 +2530,15 @@ function Main.fxSnapshot(targets)
 end
 
 function Main.fxOverride(key, on, getTargets)
+    local targets = on and getTargets()
     if on then
-        Main.fxSaved[key] = Main.fxSnapshot(getTargets())
+        Main.fxSaved[key] = Main.fxSnapshot(targets)
     else
         Main.fxSetAll(Main.fxSaved[key])
         Main.fxSaved[key] = nil
     end
-    Main.listen(key, on, RunService.Heartbeat, function() Main.fxSetAll(getTargets()) end)
+    Main.listen(key, on, RunService.Heartbeat, function() Main.fxSetAll(targets) end)
+    Main.listen(key .. "Add", on, Lighting.ChildAdded, function() targets = getTargets() end)
 end
 
 Main.fxTargets = {
@@ -2632,10 +2642,12 @@ Main.fxEach = {
     end,
 }
 
+function Main.fxApply(inst, level)
+    for i = 1, level do Main.fxEach[i](inst) end
+end
+
 function Main.fxRun(inst, level)
-    pcall(function()
-        for i = 1, level do Main.fxEach[i](inst) end
-    end)
+    pcall(Main.fxApply, inst, level)
 end
 
 function Main.fxStart(level)
@@ -3096,7 +3108,7 @@ WindUI:Localization({
             Troll = "Troll",
             Misc = "Misc",
             Settings = "Settings",
-            UpdateDesc = "- Fix auto fling \n- Fix teleport tool \n- New auto wall hop",
+            UpdateDesc = "- Fix auto fling \n- Fix teleport tool \n- New auto wall hop \n- Fix lag script",
             InformationDesc = "About the hub",
             MainDesc = "Main features",
             StaminaDesc = "Stamina options",
@@ -3205,7 +3217,7 @@ local OpenButtonConfig = {
 Window:EditOpenButton(OpenButtonConfig)
 
 Window:Tag({
-    Title = "v0.2.3",
+    Title = "v0.2.4",
     Icon = "cog",
     Color = WindUI:Gradient({
         ["0"]   = { Color = "#000000", Transparency = 0 },
