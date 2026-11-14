@@ -470,6 +470,7 @@ local old = getgenv().NaNMain
 if old then
     pcall(old.adToggle, false)
     pcall(old.bpUnload)
+    pcall(old.flipStop, true)
 end
 
 local Main = {
@@ -516,6 +517,20 @@ local Main = {
     hopOn = false, hopLast = 0, hopCheck = 0, hopInterval = 0.01, hopCooldown = 0.3, hopMargin = 0.5,
     hopMin = 2, hopMult = 1, hopParams = OverlapParams.new(),
     hopCache = setmetatable({}, { __mode = "k" }),
+    flipBusy = false, flipLast = 0, flipWait = 0, flipGap = 0.25, flipDist = 12, flipHeight = 6,
+    flipAuto = {},
+    flipKinds = {
+        {
+            Key = "Front", Dir = 1, Icon = "rotate-cw",
+            Title = "Front Flip", Desc = "Spring forward into a smooth flip.",
+            AutoDesc = "Keep flipping forward on repeat.",
+        },
+        {
+            Key = "Back", Dir = -1, Icon = "rotate-ccw",
+            Title = "Back Flip", Desc = "Launch backward into a smooth flip.",
+            AutoDesc = "Keep flipping backward on repeat.",
+        },
+    },
     srvId = "", srvMinutes = 30, srvJobs = {},
     mvNoclip = false, mvInfJump = false, mvSaved = {}, mvParts = {}, mvGlideConns = {},
     mvProps = {
@@ -1786,6 +1801,105 @@ function Main.hopStep()
         Main.hopLast = now
         root.AssemblyLinearVelocity = Vector3.new(v.X, power * Main.hopMult, v.Z)
         hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    end
+end
+
+function Main.flipStop(all)
+    Main.listen("FlipRun", false)
+    if all then Main.listen("FlipAuto", false) end
+
+    local hum, root = Main.flipHum, Main.flipRoot
+    if root and root.Parent then
+        -- dựng thẳng người lại, giữ nguyên vị trí và vận tốc
+        root.CFrame = CFrame.new(root.Position) * (Main.flipRot or CFrame.identity)
+        root.AssemblyAngularVelocity = Vector3.zero
+        -- bỏ vận tốc ngang của flip để không bị trượt/văng sau khi tiếp đất
+        local v = root.AssemblyLinearVelocity
+        root.AssemblyLinearVelocity = Vector3.new(0, math.min(v.Y, 0), 0)
+    end
+    if hum then
+        hum.PlatformStand = Main.flipStand
+        if hum.Health > 0 then hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
+    end
+
+    Main.flipHum, Main.flipRoot, Main.flipRot = nil, nil, nil
+    Main.flipBusy = false
+    Main.flipWait = os.clock() + Main.flipGap
+end
+
+function Main.flipRun(dir)
+    local char, hum, root = Main.char()
+    if Main.flipBusy or not (hum and root) or hum.Health <= 0 then return end
+
+    local look = root.CFrame.LookVector
+    local face = Vector3.new(look.X, 0, look.Z)
+    face = face.Magnitude > 0.01 and face.Unit or Vector3.new(0, 0, -1)
+
+    -- thời gian flip = thời gian bay thật (tính từ độ cao nhảy + trọng lực)
+    -- nên xoay đúng 1 vòng trong lúc bay và quãng đường luôn đúng bằng Flip Distance
+    local jump = math.sqrt(2 * Workspace.Gravity * Main.flipHeight)
+    local airtime = 2 * jump / Workspace.Gravity
+
+    local rot = CFrame.lookAt(Vector3.zero, face)
+    local axis = rot.RightVector
+    local omega = -dir * math.pi * 2 / airtime
+    local drift = face * (Main.flipDist * dir / airtime)
+
+    -- raycast kiểm tra chạm đất: loại trừ bản thân (kể cả nhân vật giả của Bypass)
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.RespectCanCollide = true
+    params.FilterDescendantsInstances = { char, Main.bpFakeChar, Main.bpRealChar }
+    local reach = math.max(root.Size.Y / 2 + hum.HipHeight, 3) + 0.6
+
+    Main.flipBusy, Main.flipHum, Main.flipRoot, Main.flipRot = true, hum, root, rot
+    Main.flipStand = hum.PlatformStand
+    hum.PlatformStand = true
+
+    -- xung lực nhảy lên, phần còn lại để vật lý/trọng lực lo
+    local v = root.AssemblyLinearVelocity
+    root.AssemblyLinearVelocity = Vector3.new(drift.X, math.max(v.Y, 0) + jump, drift.Z)
+
+    local angle, started = 0, os.clock()
+
+    Main.listen("FlipRun", true, RunService.Heartbeat, function(dt)
+        if hum.Health <= 0 or not root:IsDescendantOf(Workspace) then return Main.flipStop() end
+
+        local now = os.clock() - started
+        local vel = root.AssemblyLinearVelocity
+
+        -- di chuyển bình thường: cộng hướng người chơi điều khiển, Y do trọng lực quyết định
+        local move = hum.MoveDirection * hum.WalkSpeed
+        root.AssemblyLinearVelocity = Vector3.new(drift.X + move.X, vel.Y, drift.Z + move.Z)
+
+        -- xoay đúng 1 vòng, không đụng vào vị trí nên vẫn va chạm thật
+        if angle < math.pi * 2 then
+            root.AssemblyAngularVelocity = axis * omega
+            angle += math.abs(omega) * dt
+        else
+            root.AssemblyAngularVelocity = Vector3.zero
+        end
+
+        -- chỉ kết thúc khi chạm đất (hoặc quá giờ), không kết thúc sớm giữa không trung
+        local landed = now > airtime * 0.5 and vel.Y <= 1
+            and Workspace:Raycast(root.Position, Vector3.new(0, -reach, 0), params) ~= nil
+
+        if landed or now > airtime * 2 + 1 then
+            Main.flipStop()
+        end
+    end)
+end
+
+function Main.flipAutoStep()
+    if Main.flipBusy or os.clock() < Main.flipWait then return end
+
+    local kinds = Main.flipKinds
+    for i = 1, #kinds do
+        local idx = (Main.flipLast + i - 1) % #kinds + 1
+        if Main.flipAuto[kinds[idx].Key] then
+            Main.flipLast = idx
+            return Main.flipRun(kinds[idx].Dir)
+        end
     end
 end
 
@@ -3091,21 +3205,12 @@ local OpenButtonConfig = {
 Window:EditOpenButton(OpenButtonConfig)
 
 Window:Tag({
-    Title = "v0.2.1",
+    Title = "v0.2.3",
     Icon = "cog",
     Color = WindUI:Gradient({
-        ["0"] = {
-            Color = "#8B5CF6",
-            Transparency = 0
-        },
-        ["50"] = {
-            Color = "#6366F1",
-            Transparency = 0
-        },
-        ["100"] = {
-            Color = "#06B6D4",
-            Transparency = 0
-        },
+        ["0"]   = { Color = "#000000", Transparency = 0 },
+        ["50"]  = { Color = "#27272A", Transparency = 0 },
+        ["100"] = { Color = "#71717A", Transparency = 0 },
     }, {
         Rotation = 45
     }),
@@ -3187,6 +3292,10 @@ local Sections = {
     }),
     WallHop = TabHandles.Main:Section({
         Title = "Wall Hop", Desc = "Configure wall hop settings and movement options.", Icon = "brick-wall", Box = true, BoxBorder = true,
+        FontWeight = Enum.FontWeight.SemiBold, TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
+    }),
+    Flip = TabHandles.Main:Section({
+        Title = "Flip", Desc = "Glide through the air with smooth front and back flips.", Icon = "rotate-cw", Box = true, BoxBorder = true,
         FontWeight = Enum.FontWeight.SemiBold, TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
     }),
     Server = TabHandles.Server:Section({
@@ -3528,6 +3637,45 @@ Sections.WallHop:Toggle({
         Main.hopOn = on
         Main.listen("WallHop", on, RunService.Heartbeat, Main.hopStep)
     end,
+})
+
+for _, k in ipairs(Main.flipKinds) do
+    Sections.Flip:Button({
+        Title = k.Title,
+        Desc = k.Desc,
+        Icon = k.Icon,
+        Callback = function() Main.flipRun(k.Dir) end,
+    })
+
+    Sections.Flip:Toggle({
+        Title = "Auto " .. k.Title,
+        Desc = k.AutoDesc,
+        Icon = k.Icon,
+        Flag = "Auto" .. k.Key .. "Flip",
+        Value = false,
+        Callback = function(on)
+            Main.flipAuto[k.Key] = on or nil
+            Main.listen("FlipAuto", next(Main.flipAuto) ~= nil, RunService.Heartbeat, Main.flipAutoStep)
+        end,
+    })
+end
+
+Sections.Flip:Slider({
+    Title = "Flip Distance",
+    Desc = "Set how far each flip carries you.",
+    Flag = "FlipDistance",
+    Step = 1,
+    Value = { Min = 2, Max = 200, Default = Main.flipDist },
+    Callback = function(v) Main.flipDist = v end,
+})
+
+Sections.Flip:Slider({
+    Title = "Flip Height",
+    Desc = "Control how high you jump (also sets how long the flip lasts).",
+    Flag = "FlipHeight",
+    Step = 1,
+    Value = { Min = 2, Max = 20, Default = Main.flipHeight },
+    Callback = function(v) Main.flipHeight = v end,
 })
 
 Main.srvStatus = Sections.Server:Paragraph({
