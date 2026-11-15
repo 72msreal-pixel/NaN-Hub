@@ -3369,7 +3369,9 @@ ChatTab = Tabs.Features:GeneralTab({
     "asshole", "arsehole", "dumbass", "jackass", "douche", "wanker", "twat",
     "bollocks", "cunt", "pussy", "whore", "slut", "porn",
     "idiot", "stupid", "dumbfuck", "dickhead", "motherfucker",
-    "nigger", "nigga", "n1gger", "n1gga", "faggot", "niggers"
+    "nigger", "nigga", "n1gger", "n1gga", "faggot", "niggers",
+    "cc", "lòn", "lồn", "cặc", "cu", "khấc", "cl", "địt", "lọ", "mày",
+    "ngu", "óc", "ngáo", "chim", "bướm", "khắm", "buồi",
     },
     NameColor = Color3.fromRGB(32, 99, 235),
     Cooldown = 5,
