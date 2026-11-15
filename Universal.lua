@@ -1073,6 +1073,24 @@ function Main.camNext()
     return list[1].r
 end
 
+function Main.camSyncOriginal(cam, root)
+    local ok, ctrl = pcall(function()
+        local scripts = localPlayer:FindFirstChild("PlayerScripts")
+        local module = scripts and scripts:FindFirstChild("PlayerModule")
+        if not module then return end
+        Main.camModule = Main.camModule or require(module)
+        local cams = Main.camModule:GetCameras()
+        return cams and cams.activeCameraController
+    end)
+    if not (ok and ctrl) then return end
+
+    pcall(function()
+        ctrl.lastCameraTransform = cam.CFrame
+        ctrl.lastCameraFocus = cam.Focus
+        if root then ctrl.lastSubjectPosition = root.Position end
+    end)
+end
+
 function Main.camRelease()
     Main.camTarget, Main.camCF, Main.camSeen = nil, nil, nil
 end
@@ -1186,6 +1204,42 @@ function Main.camSetupGui()
     Main.camUpdateQuick()
 end
 
+function Main.camStep()
+    local cam = Main.cam()
+    if not cam or not Main.camOn then return end
+
+    local _, root = Main.camSubject()
+    if not root then
+        Main.camRelease()
+        return
+    end
+
+    local t, now = Main.camTarget, os.clock()
+    local valid = Main.camValid(t)
+    if valid and Main.camInFov(t, 1.15) then Main.camSeen = now end
+
+    if not (valid and now - (Main.camSeen or 0) < 0.5) then
+        t = Main.camNearest()
+        if not t then
+            Main.camRelease()
+            return
+        end
+        Main.camTarget, Main.camSeen = t, now
+    end
+
+    local zoom = (cam.CFrame.Position - cam.Focus.Position).Magnitude
+    local aim = Main.camAimPos(t.Parent) or t.Position
+    local anchor = root.Position + Vector3.new(0, Main.camHeight, 0)
+    local want = (aim - anchor).Unit
+    local dir = (Main.camCF or cam.CFrame).LookVector:Lerp(want, Main.camSmooth).Unit
+    local pos = anchor - dir * zoom
+
+    Main.camCF = CFrame.lookAt(pos, pos + dir)
+    cam.CFrame = Main.camCF
+    cam.Focus = CFrame.new(anchor)
+    Main.camSyncOriginal(cam, root)
+end
+
 function Main.camToggle(on)
     Main.camOn = on
     Main.camUpdateQuick()
@@ -1194,40 +1248,7 @@ function Main.camToggle(on)
     Main.camRelease()
     if not on then return end
 
-    RunService:BindToRenderStep("Camlock_SyncRender", 250, function()
-        local cam = Main.cam()
-        if not cam then return end
-
-        local _, root = Main.camSubject()
-        if not root then
-            Main.camRelease()
-            return
-        end
-
-        local t, now = Main.camTarget, os.clock()
-        local valid = Main.camValid(t)
-        if valid and Main.camInFov(t, 1.15) then Main.camSeen = now end
-
-        if not (valid and now - (Main.camSeen or 0) < 0.5) then
-            t = Main.camNearest()
-            if not t then
-                Main.camRelease()
-                return
-            end
-            Main.camTarget, Main.camSeen = t, now
-        end
-
-        local zoom = (cam.CFrame.Position - cam.Focus.Position).Magnitude
-        local aim = Main.camAimPos(t.Parent) or t.Position
-        local anchor = root.Position + Vector3.new(0, Main.camHeight, 0)
-        local want = (aim - anchor).Unit
-        local dir = (Main.camCF or cam.CFrame).LookVector:Lerp(want, Main.camSmooth).Unit
-        local pos = anchor - dir * zoom
-
-        Main.camCF = CFrame.lookAt(pos, pos + dir)
-        cam.CFrame = Main.camCF
-        cam.Focus = CFrame.new(anchor)
-    end)
+    RunService:BindToRenderStep("Camlock_SyncRender", 250, Main.camStep)
 end
 
 function Main.camShow(frame, on)
@@ -3271,7 +3292,7 @@ local OpenButtonConfig = {
 Window:EditOpenButton(OpenButtonConfig)
 
 Window:Tag({
-    Title = "v0.2.4",
+    Title = "v0.2.5",
     Icon = "cog",
     Color = WindUI:Gradient({
         ["0"]   = { Color = "#000000", Transparency = 0 },
@@ -3334,6 +3355,19 @@ local TabHandles = {
         Locked = false, ShowTabTitle = true, Border = true, LayoutOrder = 1
     }),
 }
+
+ChatTab = Tabs.Features:GeneralTab({
+    Title = "Chat",
+    Desc = "General Chat",
+    Icon = "message-circle",
+    LayoutOrder = 1,
+    Url = "https://onlinechat-dbe37-default-rtdb.asia-southeast1.firebasedatabase.app",
+    NameColor = Color3.fromRGB(32, 99, 235),
+    Cooldown = 5,
+    BatchInterval = 1.2,
+    PollInterval = 2,
+    MaxLength = 200,
+})
 
 local Sections = {
     AdminPanel = TabHandles.Main:Section({
