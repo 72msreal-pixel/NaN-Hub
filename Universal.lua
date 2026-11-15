@@ -3363,6 +3363,14 @@ ChatTab = Tabs.Features:GeneralTab({
     LayoutOrder = 1,
     Url = "https://onlinechat-dbe37-default-rtdb.asia-southeast1.firebasedatabase.app",
     AdminList = { "HutaoCute_YTB", "Roblox" },
+    Blacklist = {
+    "fuck", "fck", "fuk", "fuq", "fvck", "phuck", "stfu", "gtfo",
+    "shit", "sh1t", "bullshit", "bitch", "b1tch", "biatch", "bastard",
+    "asshole", "arsehole", "dumbass", "jackass", "douche", "wanker", "twat",
+    "bollocks", "cunt", "pussy", "whore", "slut", "porn",
+    "idiot", "stupid", "dumbfuck", "dickhead", "motherfucker",
+    "nigger", "nigga", "n1gger", "n1gga", "faggot", "niggers"
+    },
     NameColor = Color3.fromRGB(32, 99, 235),
     Cooldown = 5,
     BatchInterval = 1.2,
