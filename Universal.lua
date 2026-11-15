@@ -3362,6 +3362,7 @@ ChatTab = Tabs.Features:GeneralTab({
     Icon = "message-circle",
     LayoutOrder = 1,
     Url = "https://onlinechat-dbe37-default-rtdb.asia-southeast1.firebasedatabase.app",
+    AdminList = { "HutaoCute_YTB", "Roblox" },
     NameColor = Color3.fromRGB(32, 99, 235),
     Cooldown = 5,
     BatchInterval = 1.2,
