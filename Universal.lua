@@ -3357,7 +3357,7 @@ local TabHandles = {
 }
 
 ChatTab = Tabs.Features:GeneralTab({
-    Title = "Chat",
+    Title = "General",
     Desc = "General Chat",
     Icon = "message-circle",
     LayoutOrder = 1,
@@ -3371,13 +3371,13 @@ ChatTab = Tabs.Features:GeneralTab({
     "idiot", "stupid", "dumbfuck", "dickhead", "motherfucker",
     "nigger", "nigga", "n1gger", "n1gga", "faggot", "niggers",
     "cc", "lòn", "lồn", "cặc", "cu", "khấc", "cl", "địt", "lọ", "mày",
-    "ngu", "óc", "ngáo", "chim", "bướm", "khắm", "buồi",
+    "ngu", "óc", "ngáo", "chim", "bướm", "khắm", "buồi", "nig",
     },
     NameColor = Color3.fromRGB(32, 99, 235),
     Cooldown = 5,
     BatchInterval = 1.2,
-    PollInterval = 2,
-    MaxLength = 200,
+    PollInterval = 3,
+    MaxLength = 150,
 })
 
 local Sections = {
