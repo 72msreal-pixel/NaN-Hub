@@ -16,6 +16,7 @@ local localPlayer = Players.LocalPlayer
 local PlayerGui = localPlayer:WaitForChild("PlayerGui", 10)
 local playerCharacter = localPlayer.Character or localPlayer.CharacterAdded:Wait()
 local Camera = Workspace.CurrentCamera
+local Window
 
 localPlayer.CharacterAdded:Connect(function(c)
     playerCharacter = c
@@ -479,6 +480,7 @@ if old then
     pcall(old.adToggle, false)
     pcall(old.bpUnload)
     pcall(old.flipStop, true)
+    pcall(old.cut, old.conns)
 end
 
 local Main = {
@@ -532,11 +534,13 @@ local Main = {
             Key = "Front", Dir = 1, Icon = "rotate-cw",
             Title = "Front Flip", Desc = "Spring forward into a smooth flip.",
             AutoDesc = "Keep flipping forward on repeat.",
+            Hotkey = "R", HotkeyDesc = "Tap to pop a front flip, even mid-run.",
         },
         {
             Key = "Back", Dir = -1, Icon = "rotate-ccw",
             Title = "Back Flip", Desc = "Launch backward into a smooth flip.",
             AutoDesc = "Keep flipping backward on repeat.",
+            Hotkey = "G", HotkeyDesc = "Tap to throw a back flip.",
         },
     },
     srvId = "", srvMinutes = 30, srvJobs = {},
@@ -582,6 +586,8 @@ local Main = {
     dcDefBanner = "35981388401406a4b7dffd6f447a64c4",
     dcIcon = "rbxassetid://0", dcIconSize = 48,
     cfgName = "",
+    binds = {}, toggles = {}, keyStamp = 0,
+    theme = "Dark", themeNames = {},
 }
 
 getgenv().NaNMain = Main
@@ -666,6 +672,10 @@ function Main.names(skip)
     end
     table.sort(list)
     return list
+end
+
+function Main.first(o)
+    return type(o) == "table" and o[1] or o
 end
 
 function Main.notify(title, text, icon)
@@ -1004,6 +1014,10 @@ function Main.flWatch(on)
     end)
 end
 
+function Main.flLaunch()
+    Main.flFollow(Main.flTime)
+end
+
 function Main.camSubject()
     local cam = Main.cam()
     local s = cam and cam.CameraSubject
@@ -1071,6 +1085,10 @@ function Main.camNext()
         if t.r == Main.camTarget then return list[(i % #list) + 1].r end
     end
     return list[1].r
+end
+
+function Main.camCycle()
+    if Main.camOn then Main.camTarget = Main.camNext() end
 end
 
 function Main.camSyncOriginal(cam, root)
@@ -2452,7 +2470,7 @@ function Main.freeStop()
     Main.freeRoot, Main.freeParams, Main.freeLimits, Main.freeHit = nil, nil, nil, nil
     Main.freeVel = Vector3.zero
 
-    if Main.freeToggle then Main.freeToggle:Set(false) end
+    if Main.toggles["Free Cam"] then Main.toggles["Free Cam"]:Set(false) end
 end
 
 function Main.freeStep(dt)
@@ -2488,7 +2506,7 @@ function Main.freeStart()
     local cam = Main.cam()
 
     if not (hum and root and cam) or hum.Health <= 0 then
-        if Main.freeToggle then Main.freeToggle:Set(false) end
+        if Main.toggles["Free Cam"] then Main.toggles["Free Cam"]:Set(false) end
         return
     end
 
@@ -3022,6 +3040,53 @@ function Main.dcInit(tab)
     end)
 end
 
+function Main.keyOf(bind)
+    return bind.Ui.Value or bind.Key
+end
+
+function Main.rebind(bind, key)
+    if bind.Key == key then return end
+    bind.Key = key
+    Main.keyStamp = os.clock()
+    if bind.OnSet then bind.OnSet(key) end
+
+    for name, other in pairs(Main.binds) do
+        if other ~= bind and Main.keyOf(other) == key then
+            Main.notify("Keybind", key .. " is already used by " .. name, "keyboard")
+        end
+    end
+end
+
+function Main.hotkey(section, name, key, desc, run, onSet)
+    local bind = { Key = key, Run = run, OnSet = onSet }
+    bind.Ui = section:Keybind({
+        Title = name .. " Key",
+        Desc = desc,
+        Flag = name:gsub("%s", "") .. "Key",
+        Value = key,
+        Callback = function(v) Main.rebind(bind, v) end,
+    })
+    Main.binds[name] = bind
+end
+
+function Main.hotkeyToggle(section, name, key, desc)
+    local toggle = Main.toggles[name]
+    Main.hotkey(section, name, key, desc, function() toggle:Set(not toggle.Value) end)
+end
+
+function Main.keyPress(code)
+    if os.clock() - Main.keyStamp < 0.2 then return end
+    for _, bind in pairs(Main.binds) do
+        if bind.Run and Main.keyOf(bind) == code.Name then bind.Run() end
+    end
+end
+
+Main.listen("Hotkeys", true, UserInputService.InputBegan, function(input, typing)
+    if not typing and input.UserInputType == Enum.UserInputType.Keyboard then
+        task.defer(Main.keyPress, input.KeyCode)
+    end
+end)
+
 function Main.cfgList()
     local list = Window.ConfigManager:AllConfigs()
     table.sort(list)
@@ -3077,77 +3142,88 @@ function Main.cfgRun(label, kind, fn)
     if ok then Main.cfgReload(name) end
 end
 
-WindUI:AddTheme({
-    Name = "Dark",
-    Accent = "#18181b",
-    Dialog = "#18181b",
-    Outline = "#FFFFFF",
-    Text = "#FFFFFF",
-    Placeholder = "#999999",
-    Background = "#0e0e10",
-    Button = "#52525b",
-    Icon = "#a1a1aa",
-})
+Main.themes = {
+    { Name = "Dark", Accent = "#18181b", Dialog = "#18181b",
+      Outline = "#FFFFFF", Text = "#FFFFFF", Placeholder = "#999999",
+      Background = "#0e0e10", Button = "#52525b", Icon = "#a1a1aa" },
+    { Name = "Light", Accent = "#f4f4f5", Dialog = "#f4f4f5",
+      Outline = "#000000", Text = "#000000", Placeholder = "#666666",
+      Background = "#ffffff", Button = "#e4e4e7", Icon = "#52525b" },
+    { Name = "Gray", Accent = "#374151", Dialog = "#374151",
+      Outline = "#d1d5db", Text = "#f9fafb", Placeholder = "#9ca3af",
+      Background = "#1f2937", Button = "#4b5563", Icon = "#d1d5db" },
+    { Name = "Blue", Accent = "#1e40af", Dialog = "#1e3a8a",
+      Outline = "#93c5fd", Text = "#f0f9ff", Placeholder = "#60a5fa",
+      Background = "#1e293b", Button = "#3b82f6", Icon = "#93c5fd" },
+    { Name = "Green", Accent = "#059669", Dialog = "#047857",
+      Outline = "#6ee7b7", Text = "#ecfdf5", Placeholder = "#34d399",
+      Background = "#064e3b", Button = "#10b981", Icon = "#6ee7b7" },
+    { Name = "Purple", Accent = "#7c3aed", Dialog = "#6d28d9",
+      Outline = "#c4b5fd", Text = "#faf5ff", Placeholder = "#a78bfa",
+      Background = "#581c87", Button = "#8b5cf6", Icon = "#c4b5fd" },
+    { Name = "Amoled", Accent = "#0a0a0a", Dialog = "#0a0a0a",
+      Outline = "#ffffff", Text = "#ffffff", Placeholder = "#737373",
+      Background = "#000000", Button = "#262626", Icon = "#d4d4d4" },
+    { Name = "Midnight", Accent = "#14142b", Dialog = "#14142b",
+      Outline = "#6366f1", Text = "#e0e7ff", Placeholder = "#818cf8",
+      Background = "#0a0a1a", Button = "#4338ca", Icon = "#a5b4fc" },
+    { Name = "Ocean", Accent = "#0e7490", Dialog = "#155e75",
+      Outline = "#67e8f9", Text = "#ecfeff", Placeholder = "#22d3ee",
+      Background = "#083344", Button = "#06b6d4", Icon = "#a5f3fc" },
+    { Name = "Aurora", Accent = "#134e4a", Dialog = "#115e59",
+      Outline = "#5eead4", Text = "#f0fdfa", Placeholder = "#2dd4bf",
+      Background = "#042f2e", Button = "#14b8a6", Icon = "#99f6e4" },
+    { Name = "Matcha", Accent = "#3f6212", Dialog = "#365314",
+      Outline = "#bef264", Text = "#f7fee7", Placeholder = "#a3e635",
+      Background = "#1a2e05", Button = "#65a30d", Icon = "#d9f99d" },
+    { Name = "Sunset", Accent = "#c2410c", Dialog = "#9a3412",
+      Outline = "#fdba74", Text = "#fff7ed", Placeholder = "#fb923c",
+      Background = "#431407", Button = "#ea580c", Icon = "#fed7aa" },
+    { Name = "Gold", Accent = "#78350f", Dialog = "#451a03",
+      Outline = "#fbbf24", Text = "#fffbeb", Placeholder = "#f59e0b",
+      Background = "#1c1003", Button = "#d97706", Icon = "#fde68a" },
+    { Name = "Crimson", Accent = "#7f1d1d", Dialog = "#450a0a",
+      Outline = "#f87171", Text = "#fef2f2", Placeholder = "#ef4444",
+      Background = "#1c0505", Button = "#b91c1c", Icon = "#fca5a5" },
+    { Name = "Rose", Accent = "#be123c", Dialog = "#9f1239",
+      Outline = "#fda4af", Text = "#fff1f2", Placeholder = "#fb7185",
+      Background = "#4c0519", Button = "#e11d48", Icon = "#fecdd3" },
+    { Name = "Dracula", Accent = "#44475a", Dialog = "#282a36",
+      Outline = "#bd93f9", Text = "#f8f8f2", Placeholder = "#6272a4",
+      Background = "#1e1f29", Button = "#6272a4", Icon = "#ff79c6" },
+    { Name = "Nord", Accent = "#3b4252", Dialog = "#2e3440",
+      Outline = "#88c0d0", Text = "#eceff4", Placeholder = "#81a1c1",
+      Background = "#242933", Button = "#5e81ac", Icon = "#8fbcbb" },
+    { Name = "Mocha", Accent = "#313244", Dialog = "#313244",
+      Outline = "#cba6f7", Text = "#cdd6f4", Placeholder = "#7f849c",
+      Background = "#1e1e2e", Button = "#585b70", Icon = "#f5c2e7" },
+    { Name = "Cyberpunk", Accent = "#1a0b2e", Dialog = "#1a0b2e",
+      Outline = "#00f0ff", Text = "#f0f0ff", Placeholder = "#ff2a6d",
+      Background = "#0d0221", Button = "#ff2a6d", Icon = "#05d9e8" },
+    { Name = "Sakura", Accent = "#fbcfe8", Dialog = "#fce7f3",
+      Outline = "#be185d", Text = "#500724", Placeholder = "#9d174d",
+      Background = "#fff1f7", Button = "#f9a8d4", Icon = "#be185d" },
+    { Name = "Lavender", Accent = "#ede9fe", Dialog = "#ede9fe",
+      Outline = "#7c3aed", Text = "#2e1065", Placeholder = "#6d28d9",
+      Background = "#faf5ff", Button = "#ddd6fe", Icon = "#7c3aed" },
+    { Name = "Ice", Accent = "#e0f2fe", Dialog = "#e0f2fe",
+      Outline = "#0369a1", Text = "#082f49", Placeholder = "#0284c7",
+      Background = "#f0f9ff", Button = "#bae6fd", Icon = "#0369a1" },
+}
 
-WindUI:AddTheme({
-    Name = "Light",
-    Accent = "#f4f4f5",
-    Dialog = "#f4f4f5",
-    Outline = "#000000",
-    Text = "#000000",
-    Placeholder = "#666666",
-    Background = "#ffffff",
-    Button = "#e4e4e7",
-    Icon = "#52525b",
-})
+for _, theme in ipairs(Main.themes) do
+    WindUI:AddTheme(theme)
+    table.insert(Main.themeNames, theme.Name)
+end
 
-WindUI:AddTheme({
-    Name = "Gray",
-    Accent = "#374151",
-    Dialog = "#374151",
-    Outline = "#d1d5db",
-    Text = "#f9fafb",
-    Placeholder = "#9ca3af",
-    Background = "#1f2937",
-    Button = "#4b5563",
-    Icon = "#d1d5db",
-})
+function Main.setTheme(name)
+    name = Main.first(name)
+    if name == Main.theme then return end
 
-WindUI:AddTheme({
-    Name = "Blue",
-    Accent = "#1e40af",
-    Dialog = "#1e3a8a",
-    Outline = "#93c5fd",
-    Text = "#f0f9ff",
-    Placeholder = "#60a5fa",
-    Background = "#1e293b",
-    Button = "#3b82f6",
-    Icon = "#93c5fd",
-})
-
-WindUI:AddTheme({
-    Name = "Green",
-    Accent = "#059669",
-    Dialog = "#047857",
-    Outline = "#6ee7b7",
-    Text = "#ecfdf5",
-    Placeholder = "#34d399",
-    Background = "#064e3b",
-    Button = "#10b981",
-    Icon = "#6ee7b7",
-})
-
-WindUI:AddTheme({
-    Name = "Purple",
-    Accent = "#7c3aed",
-    Dialog = "#6d28d9",
-    Outline = "#c4b5fd",
-    Text = "#faf5ff",
-    Placeholder = "#a78bfa",
-    Background = "#581c87",
-    Button = "#8b5cf6",
-    Icon = "#c4b5fd",
-})
+    Main.theme = name
+    WindUI:SetTheme(name)
+    WindUI:Notify({ Title = "loc:ThemeChanged", Content = name, Duration = 2, Icon = "palette" })
+end
 
 WindUI:SetNotificationLower(true)
 
@@ -3183,7 +3259,7 @@ WindUI:Localization({
             Troll = "Troll",
             Misc = "Misc",
             Settings = "Settings",
-            UpdateDesc = "- Fix auto fling \n- Fix teleport tool \n- New auto wall hop \n- Fix lag script",
+            UpdateDesc = "- Hotkeys for the main features \n- Theme dropdown in Settings \n- Menu key you can rebind \n- 14 new themes",
             InformationDesc = "About the hub",
             MainDesc = "Main features",
             StaminaDesc = "Stamina options",
@@ -3203,14 +3279,11 @@ WindUI:Localization({
     },
 })
 
-local themes = { "Dark", "Light", "Gray", "Blue", "Green", "Purple" }
-local currentThemeIndex = 1
-
 if not getgenv().TransparencyEnabled then
     getgenv().TransparencyEnabled = true
 end
 
-local Window = WindUI:CreateWindow({
+Window = WindUI:CreateWindow({
     Title = "loc:HubTitle",
     Icon = "rbxassetid://105519970633948",
     Background = "rbxassetid://0",
@@ -3228,22 +3301,6 @@ local Window = WindUI:CreateWindow({
     User = {
         Enabled = true,
         Anonymous = true,
-        Callback = function()
-            currentThemeIndex = currentThemeIndex + 1
-            if currentThemeIndex > #themes then
-                currentThemeIndex = 1
-            end
-
-            local newTheme = themes[currentThemeIndex]
-            WindUI:SetTheme(newTheme)
-
-            WindUI:Notify({
-                Title = "loc:ThemeChanged",
-                Content = newTheme,
-                Duration = 2,
-                Icon = "palette"
-            })
-        end,
     },
 })
 
@@ -3292,7 +3349,7 @@ local OpenButtonConfig = {
 Window:EditOpenButton(OpenButtonConfig)
 
 Window:Tag({
-    Title = "v0.2.5",
+    Title = "v0.2.6",
     Icon = "cog",
     Color = WindUI:Gradient({
         ["0"]   = { Color = "#000000", Transparency = 0 },
@@ -3380,104 +3437,40 @@ ChatTab = Tabs.Features:GeneralTab({
     MaxLength = 150,
 })
 
-local Sections = {
-    AdminPanel = TabHandles.Main:Section({
-        Title = "Admin Panel", Desc = "Show Admin Panel Plus.", Icon = "code", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold, TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    Fling = TabHandles.Main:Section({
-        Title = "Fling", Desc = "Launch targets using physics.", Icon = "zap", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold, TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    Camlock = TabHandles.Main:Section({
-        Title = "Camlock", Desc = "Configure target detection and camera locking settings.", Icon = "crosshair", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold, TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    GodMode = TabHandles.Main:Section({
-        Title = "God Mode", Desc = "Configure god mode settings and protection options.", Icon = "infinity", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold, TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    GetTool = TabHandles.Main:Section({
-        Title = "Get Tool", Desc = "Claim special tools provided by the script.", Icon = "wrench", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold, TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    WallHop = TabHandles.Main:Section({
-        Title = "Wall Hop", Desc = "Configure wall hop settings and movement options.", Icon = "brick-wall", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold, TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    Flip = TabHandles.Main:Section({
-        Title = "Flip", Desc = "Glide through the air with smooth front and back flips.", Icon = "rotate-cw", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold, TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    Server = TabHandles.Server:Section({
-        Title = "Server", Desc = "Explore server options and manage your connection.", Icon = "server", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold, TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    Character = TabHandles.Player:Section({
-        Title = "Character", Desc = "Enhance your character with unrestricted movement abilities.", Icon = "user-round", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold,TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    WalkSpeed = TabHandles.Player:Section({
-        Title = "Walk Speed", Desc = "Move faster with enhanced walking speed.", Icon = "footprints", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold,TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    JumpPower = TabHandles.Player:Section({
-        Title = "Jump Power", Desc = "Reach greater heights with enhanced jumping power.", Icon = "arrow-up-from-line", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold,TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    Swim = TabHandles.Player:Section({
-        Title = "Swim", Desc = "Swim freely through the water.", Icon = "waves", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold,TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    Fly = TabHandles.Player:Section({
-        Title = "Fly", Desc = "Take flight and explore the world freely.", Icon = "wind", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold,TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    Gravity = TabHandles.Player:Section({
-        Title = "Gravity", Desc = "Adjust gravity settings and control fall speed.", Icon = "replace", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold,TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    Tracer = TabHandles.Visual:Section({
-        Title = "Tracer Settingsr", Desc = "Customize tracer lines and their visual behavior.", Icon = "crosshair", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold,TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    EspPlayer = TabHandles.Visual:Section({
-        Title = "Esp Player", Desc = "Track players and reveal their presence across the map.", Icon = "users", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold,TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    EspModel = TabHandles.Visual:Section({
-        Title = "Esp Model", Desc = "Detect and highlight objects throughout the environment.", Icon = "box", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold,TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    EspNPC = TabHandles.Visual:Section({
-        Title = "Esp NPC", Desc = "Locate and highlight NPCs around the world.", Icon = "bot", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold,TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    Camera = TabHandles.Misc:Section({
-        Title = "Camera", Desc = "Customize your camera settings.", Icon = "camera", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold,TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    Bypass = TabHandles.Misc:Section({
-        Title = "Bypass", Desc = "Manage bypass options.", Icon = "shield-check", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold,TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    FixLag = TabHandles.Misc:Section({
-        Title = "Fix Lag", Desc = "Improve performance and reduce lag.", Icon = "cog", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold,TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    Teleport = TabHandles.Teleport:Section({
-        Title = "Teleport", Desc = "Manage teleport options and location settings.", Icon = "map-pinned", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold,TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    Language = TabHandles.Settings:Section({
-        Title = "loc:Language", Desc = "Switch between different languages.", Icon = "settings", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold,TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-    Config = TabHandles.Settings:Section({
-        Title = "Config", Desc = "Manage your configurations.", Icon = "folder-cog", Box = true, BoxBorder = true,
-        FontWeight = Enum.FontWeight.SemiBold,TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false
-    }),
-}
+local Sections = {}
+
+for _, s in ipairs({
+    { key = "AdminPanel", tab = "Main", title = "Admin Panel", desc = "Show Admin Panel Plus.", icon = "code" },
+    { key = "Fling", tab = "Main", title = "Fling", desc = "Launch targets using physics.", icon = "zap" },
+    { key = "Camlock", tab = "Main", title = "Camlock", desc = "Configure target detection and camera locking settings.", icon = "crosshair" },
+    { key = "GodMode", tab = "Main", title = "God Mode", desc = "Configure god mode settings and protection options.", icon = "infinity" },
+    { key = "GetTool", tab = "Main", title = "Get Tool", desc = "Claim special tools provided by the script.", icon = "wrench" },
+    { key = "WallHop", tab = "Main", title = "Wall Hop", desc = "Configure wall hop settings and movement options.", icon = "brick-wall" },
+    { key = "Flip", tab = "Main", title = "Flip", desc = "Glide through the air with smooth front and back flips.", icon = "rotate-cw" },
+    { key = "Server", tab = "Server", title = "Server", desc = "Explore server options and manage your connection.", icon = "server" },
+    { key = "Character", tab = "Player", title = "Character", desc = "Enhance your character with unrestricted movement abilities.", icon = "user-round" },
+    { key = "WalkSpeed", tab = "Player", title = "Walk Speed", desc = "Move faster with enhanced walking speed.", icon = "footprints" },
+    { key = "JumpPower", tab = "Player", title = "Jump Power", desc = "Reach greater heights with enhanced jumping power.", icon = "arrow-up-from-line" },
+    { key = "Swim", tab = "Player", title = "Swim", desc = "Swim freely through the water.", icon = "waves" },
+    { key = "Fly", tab = "Player", title = "Fly", desc = "Take flight and explore the world freely.", icon = "wind" },
+    { key = "Gravity", tab = "Player", title = "Gravity", desc = "Adjust gravity settings and control fall speed.", icon = "replace" },
+    { key = "Tracer", tab = "Visual", title = "Tracer Settings", desc = "Customize tracer lines and their visual behavior.", icon = "crosshair" },
+    { key = "EspPlayer", tab = "Visual", title = "Esp Player", desc = "Track players and reveal their presence across the map.", icon = "users" },
+    { key = "EspModel", tab = "Visual", title = "Esp Model", desc = "Detect and highlight objects throughout the environment.", icon = "box" },
+    { key = "EspNPC", tab = "Visual", title = "Esp NPC", desc = "Locate and highlight NPCs around the world.", icon = "bot" },
+    { key = "Camera", tab = "Misc", title = "Camera", desc = "Customize your camera settings.", icon = "camera" },
+    { key = "Bypass", tab = "Misc", title = "Bypass", desc = "Manage bypass options.", icon = "shield-check" },
+    { key = "FixLag", tab = "Misc", title = "Fix Lag", desc = "Improve performance and reduce lag.", icon = "cog" },
+    { key = "Teleport", tab = "Teleport", title = "Teleport", desc = "Manage teleport options and location settings.", icon = "map-pinned" },
+    { key = "Interface", tab = "Settings", title = "Interface", desc = "Pick a theme and set the key that opens the menu.", icon = "palette" },
+    { key = "Language", tab = "Settings", title = "loc:Language", desc = "Switch between different languages.", icon = "settings" },
+    { key = "Config", tab = "Settings", title = "Config", desc = "Manage your configurations.", icon = "folder-cog" },
+}) do
+    Sections[s.key] = TabHandles[s.tab]:Section({
+        Title = s.title, Desc = s.desc, Icon = s.icon, Box = true, BoxBorder = true,
+        FontWeight = Enum.FontWeight.SemiBold, TextTransparency = 0.05, TextXAlignment = "Left", TextSize = 17, Opened = false,
+    })
+end
 
 Window:SelectTab(1)
 
@@ -3521,7 +3514,7 @@ Sections.AdminPanel:Colorpicker({
     end,
 })
 
-Sections.Fling:Toggle({
+Main.toggles["Fling Plus"] = Sections.Fling:Toggle({
     Title = "Fling Plus",
     Desc = "Unleash an invisible, powerful fling aura.",
     Flag = "FlingPlus",
@@ -3533,6 +3526,8 @@ Sections.Fling:Toggle({
         Main.flSync()
     end,
 })
+
+Main.hotkeyToggle(Sections.Fling, "Fling Plus", "P", "Tap to switch your fling aura on, tap again to calm it down.")
 
 Sections.Fling:Slider({
     Title = "Fling Power",
@@ -3550,15 +3545,17 @@ Main.flDrop = Sections.Fling:Dropdown({
     Values = Main.names(),
     Multi = false,
     AllowNone = true,
-    Callback = function(o) Main.flName = type(o) == "table" and o[1] or o end,
+    Callback = function(o) Main.flName = Main.first(o) end,
 })
 
 Sections.Fling:Button({
     Title = "Fling Target",
     Desc = "Start flinging the selected target.",
     Locked = false,
-    Callback = function() Main.flFollow(Main.flTime) end,
+    Callback = Main.flLaunch,
 })
+
+Main.hotkey(Sections.Fling, "Fling Target", "B", "Tap to launch whoever you picked as the target.", Main.flLaunch)
 
 Sections.Fling:Slider({
     Title = "Hold Duration",
@@ -3569,7 +3566,7 @@ Sections.Fling:Slider({
     Callback = function(v) Main.flTime = v end,
 })
 
-Sections.Fling:Toggle({
+Main.toggles["Auto Fling"] = Sections.Fling:Toggle({
     Title = "Auto Fling Target",
     Desc = "Automatically follow and fling targets.",
     Flag = "AutoFlingTarget",
@@ -3582,21 +3579,25 @@ Sections.Fling:Toggle({
     end,
 })
 
+Main.hotkeyToggle(Sections.Fling, "Auto Fling", "M", "Tap to chase and fling players on repeat, tap again to stop.")
+
 Sections.Camlock:Button({
     Title = "Switch Target",
     Desc = "Switch to the next available target.",
-    Callback = function()
-        if Main.camOn then Main.camTarget = Main.camNext() end
-    end,
+    Callback = Main.camCycle,
 })
 
-Sections.Camlock:Toggle({
+Main.hotkey(Sections.Camlock, "Switch Target", "RightBracket", "Tap to snap your camera onto the next target in line.", Main.camCycle)
+
+Main.toggles["Camlock"] = Sections.Camlock:Toggle({
     Title = "Camlock",
     Desc = "Automatically detect and lock onto suitable targets.",
     Flag = "Camlock",
     Value = false,
     Callback = Main.camToggle,
 })
+
+Main.hotkeyToggle(Sections.Camlock, "Camlock", "Q", "Tap to lock your camera onto the nearest player, tap again to let go.")
 
 Sections.Camlock:Toggle({
     Title = "FOV Check",
@@ -3697,7 +3698,7 @@ Sections.GodMode:Dropdown({
     end,
 })
 
-Sections.GodMode:Toggle({
+Main.toggles["God Mode"] = Sections.GodMode:Toggle({
     Title = "God Mode",
     Desc = "Enable or disable god mode.",
     Flag = "GodMode",
@@ -3705,6 +3706,8 @@ Sections.GodMode:Toggle({
     Value = false,
     Callback = Main.godSet,
 })
+
+Main.hotkeyToggle(Sections.GodMode, "God Mode", "H", "Tap to become unkillable, tap again to take hits like normal.")
 
 Sections.GetTool:Toggle({
     Title = "Auto Get Tool",
@@ -3738,7 +3741,7 @@ Sections.WallHop:Input({
     Callback = function(v) Main.hopMargin = math.max(tonumber(v) or Main.hopMargin, 0) end,
 })
 
-Sections.WallHop:Toggle({
+Main.toggles["Wall Hop"] = Sections.WallHop:Toggle({
     Title = "Auto Wall Hop",
     Desc = "Enable or disable auto wall hop.",
     Flag = "AutoWallHop",
@@ -3750,13 +3753,19 @@ Sections.WallHop:Toggle({
     end,
 })
 
+Main.hotkeyToggle(Sections.WallHop, "Wall Hop", "K", "Tap to bounce off walls on its own, tap again to stop.")
+
 for _, k in ipairs(Main.flipKinds) do
+    k.Go = function() Main.flipRun(k.Dir) end
+
     Sections.Flip:Button({
         Title = k.Title,
         Desc = k.Desc,
         Icon = k.Icon,
-        Callback = function() Main.flipRun(k.Dir) end,
+        Callback = k.Go,
     })
+
+    Main.hotkey(Sections.Flip, k.Title, k.Hotkey, k.HotkeyDesc, k.Go)
 
     Sections.Flip:Toggle({
         Title = "Auto " .. k.Title,
@@ -3862,7 +3871,7 @@ Sections.Server:Toggle({
     Callback = function(on) Main.srvAuto("Rejoin", on) end,
 })
 
-Sections.Character:Toggle({
+Main.toggles["Noclip"] = Sections.Character:Toggle({
     Title = "Noclip",
     Desc = "Walk through walls and objects.",
     Flag = "Noclip",
@@ -3871,7 +3880,9 @@ Sections.Character:Toggle({
     Callback = function(on) Main.mvNoclip = on end,
 })
 
-Sections.Character:Toggle({
+Main.hotkeyToggle(Sections.Character, "Noclip", "N", "Tap to slip through walls, tap again to go solid.")
+
+Main.toggles["Inf Jump"] = Sections.Character:Toggle({
     Title = "Inf Jump",
     Desc = "Jump again and again in mid-air.",
     Flag = "InfJump",
@@ -3880,19 +3891,25 @@ Sections.Character:Toggle({
     Callback = function(on) Main.mvInfJump = on end,
 })
 
+Main.hotkeyToggle(Sections.Character, "Inf Jump", "J", "Tap to keep jumping in mid-air, tap again to stop.")
+
 for _, r in ipairs({
     { sec = Sections.WalkSpeed, rec = Main.mvProps.Walk, flag = "WalkSpeed", ph = "Nhập tốc độ...",
       inTitle = "Walk Speed Value", inDesc = "Set your walking speed.", inFlag = "WalkSpeedValue",
-      title = "Walk Speed", desc = "Enable custom walking speed.", icon = "footprints" },
+      title = "Walk Speed", desc = "Enable custom walking speed.", icon = "footprints",
+      key = "X", keyDesc = "Tap to sprint at your custom speed, tap again to slow down." },
     { sec = Sections.JumpPower, rec = Main.mvProps.Jump, flag = "JumpPower", ph = "Nhập lực nhảy...",
       inTitle = "Jump Power Value", inDesc = "Set your jump power.", inFlag = "JumpPowerValue",
-      title = "Jump Power", desc = "Enable custom jump power.", icon = "arrow-up" },
+      title = "Jump Power", desc = "Enable custom jump power.", icon = "arrow-up",
+      key = "U", keyDesc = "Tap to spring higher, tap again to jump normal." },
     { sec = Sections.Swim, rec = Main.mvGlide.Swim, flag = "Swim", ph = "Nhập tốc độ...", glide = true,
       inTitle = "Swim Speed", inDesc = "Adjust your swimming movement speed.", inFlag = "SwimSpeed",
-      title = "Swim", desc = "Swim freely anywhere, even outside water.", icon = "waves" },
+      title = "Swim", desc = "Swim freely anywhere, even outside water.", icon = "waves",
+      key = "Z", keyDesc = "Tap to start swimming anywhere, tap again to stop." },
     { sec = Sections.Fly, rec = Main.mvGlide.Fly, flag = "Fly", ph = "Nhập tốc độ bay...", glide = true,
       inTitle = "Fly Speed", inDesc = "Adjust your flying speed.", inFlag = "FlySpeed",
-      title = "Fly", desc = "Fly toward where your camera looks.", icon = "plane" },
+      title = "Fly", desc = "Fly toward where your camera looks.", icon = "plane",
+      key = "F", keyDesc = "Tap to lift off, tap again to land." },
 }) do
     r.sec:Input({
         Title = r.inTitle,
@@ -3905,7 +3922,7 @@ for _, r in ipairs({
         Callback = function(v) r.rec.Value = Main.num(v) or r.rec.Value end,
     })
 
-    r.sec:Toggle({
+    Main.toggles[r.title] = r.sec:Toggle({
         Title = r.title,
         Desc = r.desc,
         Flag = r.flag,
@@ -3916,6 +3933,8 @@ for _, r in ipairs({
             if r.glide then Main.glideSync() end
         end,
     })
+
+    Main.hotkeyToggle(r.sec, r.title, r.key, r.keyDesc)
 end
 
 Main.gravLabel = Sections.Gravity:Paragraph({
@@ -3953,7 +3972,7 @@ Sections.Tracer:Dropdown({
     Value = "Bottom",
     Multi = false,
     AllowNone = false,
-    Callback = function(o) ESP.TracerOrigin = type(o) == "table" and o[1] or o end,
+    Callback = function(o) ESP.TracerOrigin = Main.first(o) end,
 })
 
 for _, e in ipairs({
@@ -3961,17 +3980,20 @@ for _, e in ipairs({
       type = "Choose how players are highlighted across the world.",
       text = "Customize the information displayed above players.",
       color = "Personalize the visual appearance of player ESP.",
-      toggle = "Reveal players throughout the entire server." },
+      toggle = "Reveal players throughout the entire server.",
+      key = "Home", keyDesc = "Tap to see every player through walls, tap again to hide them." },
     { name = "Model", sec = Sections.EspModel, icon = "box",
       type = "Choose your preferred visualization for world models.",
       text = "Select which model information appears on screen.",
       color = "Customize the highlight color of detected models.",
-      toggle = "Reveal non-living models throughout the environment." },
+      toggle = "Reveal non-living models throughout the environment.",
+      key = "End", keyDesc = "Tap to outline objects around the map, tap again to clear them." },
     { name = "NPC", sec = Sections.EspNPC, icon = "eye",
       type = "Choose how NPCs are visually highlighted.",
       text = "Customize the information displayed for NPCs.",
       color = "Personalize the visual appearance of NPC ESP.",
-      toggle = "Reveal NPCs and track their presence in the environment." },
+      toggle = "Reveal NPCs and track their presence in the environment.",
+      key = "Delete", keyDesc = "Tap to spot every NPC nearby, tap again to hide them." },
 }) do
     local obj = Main["esp" .. e.name]
     local flag = e.name .. "_ESP"
@@ -4017,7 +4039,7 @@ for _, e in ipairs({
         end,
     })
 
-    e.sec:Toggle({
+    Main.toggles[e.name .. " ESP"] = e.sec:Toggle({
         Title = e.name .. " ESP",
         Desc = e.toggle,
         Flag = flag,
@@ -4028,6 +4050,8 @@ for _, e in ipairs({
             obj:Sync()
         end,
     })
+
+    Main.hotkeyToggle(e.sec, e.name .. " ESP", e.key, e.keyDesc)
 end
 
 Main.tpDrop = Sections.Teleport:Dropdown({
@@ -4045,6 +4069,8 @@ Sections.Teleport:Button({
     Callback = Main.tpToPlayer,
 })
 
+Main.hotkey(Sections.Teleport, "Teleport to Player", "Backslash", "Tap to warp right next to the player you selected.", Main.tpToPlayer)
+
 Main.tpPointDrop = Sections.Teleport:Dropdown({
     Title = "Saved Points",
     Desc = "Choose one of your saved points.",
@@ -4053,7 +4079,7 @@ Main.tpPointDrop = Sections.Teleport:Dropdown({
     Callback = function(o) Main.tpPoint = o end,
 })
 
-Main.freeToggle = Sections.Teleport:Toggle({
+Main.toggles["Free Cam"] = Sections.Teleport:Toggle({
     Title = "Set Point Mode",
     Desc = "Free cam: aim the center of the screen to choose a point.",
     Icon = "crosshair",
@@ -4063,12 +4089,16 @@ Main.freeToggle = Sections.Teleport:Toggle({
     end,
 })
 
+Main.hotkeyToggle(Sections.Teleport, "Free Cam", "C", "Tap to send the camera flying to pick a spot, tap again to come back.")
+
 Sections.Teleport:Button({
     Title = "Set Point",
     Desc = "Save the aimed point in free cam, or your current position if free cam is off.",
     Icon = "map-pin",
     Callback = Main.tpPick,
 })
+
+Main.hotkey(Sections.Teleport, "Set Point", "T", "Tap to mark the spot you are aiming at.", Main.tpPick)
 
 Sections.Teleport:Button({
     Title = "Teleport to Point",
@@ -4077,7 +4107,9 @@ Sections.Teleport:Button({
     Callback = Main.tpToPoint,
 })
 
-Sections.Camera:Toggle({
+Main.hotkey(Sections.Teleport, "Teleport to Point", "Y", "Tap to jump straight to the saved point you picked.", Main.tpToPoint)
+
+Main.toggles["Full Bright"] = Sections.Camera:Toggle({
     Title = "Full Bright",
     Desc = "Illuminate the entire environment for better visibility.",
     Icon = "sun",
@@ -4086,7 +4118,9 @@ Sections.Camera:Toggle({
     Callback = function(on) Main.fxOverride("FullBright", on, Main.fxTargets.FullBright) end,
 })
 
-Sections.Camera:Toggle({
+Main.hotkeyToggle(Sections.Camera, "Full Bright", "L", "Tap to light up the whole map, tap again for normal light.")
+
+Main.toggles["No Fog"] = Sections.Camera:Toggle({
     Title = "No Fog",
     Desc = "Remove environmental fog for clearer visibility.",
     Icon = "cloud-fog",
@@ -4094,6 +4128,8 @@ Sections.Camera:Toggle({
     Value = false,
     Callback = function(on) Main.fxOverride("NoFog", on, Main.fxTargets.NoFog) end,
 })
+
+Main.hotkeyToggle(Sections.Camera, "No Fog", "Semicolon", "Tap to wipe the fog away, tap again to bring it back.")
 
 Sections.Bypass:Toggle({
     Title = "Anti AFK",
@@ -4105,7 +4141,7 @@ Sections.Bypass:Toggle({
 })
 Main.fxAntiAFK(true)
 
-Sections.Bypass:Toggle({
+Main.toggles["Anti Fling"] = Sections.Bypass:Toggle({
     Title = "Anti Fling",
     Desc = "Protect your character from unwanted flinging.",
     Icon = "shield-check",
@@ -4113,6 +4149,8 @@ Sections.Bypass:Toggle({
     Value = false,
     Callback = Main.fxAntiFling,
 })
+
+Main.hotkeyToggle(Sections.Bypass, "Anti Fling", "Quote", "Tap to shrug off fling attempts, tap again to turn it off.")
 
 Sections.Bypass:Toggle({
     Title = "Anti Void",
@@ -4161,6 +4199,21 @@ Sections.FixLag:Toggle({
     Value = false,
     Callback = Main.fxSetAuto,
 })
+
+Sections.Interface:Dropdown({
+    Title = "Theme",
+    Desc = "Swap the whole look of the menu.",
+    Flag = "Theme",
+    Values = Main.themeNames,
+    Value = Main.theme,
+    Multi = false,
+    AllowNone = false,
+    Callback = Main.setTheme,
+})
+
+Main.hotkey(Sections.Interface, "Menu", "V", "Hit it to hide the menu or bring it back.", nil, function(k)
+    Window:SetToggleKey(Enum.KeyCode[k])
+end)
 
 LangController:AddDropdown(Sections.Language, {
     Title = "loc:Language",
