@@ -534,13 +534,11 @@ local Main = {
             Key = "Front", Dir = 1, Icon = "rotate-cw",
             Title = "Front Flip", Desc = "Spring forward into a smooth flip.",
             AutoDesc = "Keep flipping forward on repeat.",
-            Hotkey = "R", HotkeyDesc = "Tap to pop a front flip, even mid-run.",
         },
         {
             Key = "Back", Dir = -1, Icon = "rotate-ccw",
             Title = "Back Flip", Desc = "Launch backward into a smooth flip.",
             AutoDesc = "Keep flipping backward on repeat.",
-            Hotkey = "G", HotkeyDesc = "Tap to throw a back flip.",
         },
     },
     srvId = "", srvMinutes = 30, srvJobs = {},
@@ -2470,7 +2468,7 @@ function Main.freeStop()
     Main.freeRoot, Main.freeParams, Main.freeLimits, Main.freeHit = nil, nil, nil, nil
     Main.freeVel = Vector3.zero
 
-    if Main.toggles["Free Cam"] then Main.toggles["Free Cam"]:Set(false) end
+    if Main.freeToggle then Main.freeToggle:Set(false) end
 end
 
 function Main.freeStep(dt)
@@ -2506,7 +2504,7 @@ function Main.freeStart()
     local cam = Main.cam()
 
     if not (hum and root and cam) or hum.Health <= 0 then
-        if Main.toggles["Free Cam"] then Main.toggles["Free Cam"]:Set(false) end
+        if Main.freeToggle then Main.freeToggle:Set(false) end
         return
     end
 
@@ -3111,7 +3109,7 @@ end
 function Main.cfgSave(name)
     local cfg, why = Main.cfgOpen(name)
     if not cfg then return false, why end
-    cfg:Save()
+    cfg:Save("now")
     return true
 end
 
@@ -3259,7 +3257,7 @@ WindUI:Localization({
             Troll = "Troll",
             Misc = "Misc",
             Settings = "Settings",
-            UpdateDesc = "- Hotkeys for the main features \n- Theme dropdown in Settings \n- Menu key you can rebind \n- 14 new themes",
+            UpdateDesc = "- Hotkeys for fling, camlock, speed and fly \n- Theme dropdown in Settings \n- Menu key you can rebind \n- Fix config list not updating",
             InformationDesc = "About the hub",
             MainDesc = "Main features",
             StaminaDesc = "Stamina options",
@@ -3566,7 +3564,7 @@ Sections.Fling:Slider({
     Callback = function(v) Main.flTime = v end,
 })
 
-Main.toggles["Auto Fling"] = Sections.Fling:Toggle({
+Sections.Fling:Toggle({
     Title = "Auto Fling Target",
     Desc = "Automatically follow and fling targets.",
     Flag = "AutoFlingTarget",
@@ -3578,8 +3576,6 @@ Main.toggles["Auto Fling"] = Sections.Fling:Toggle({
         if not on then Main.flEnd(true) end
     end,
 })
-
-Main.hotkeyToggle(Sections.Fling, "Auto Fling", "M", "Tap to chase and fling players on repeat, tap again to stop.")
 
 Sections.Camlock:Button({
     Title = "Switch Target",
@@ -3698,7 +3694,7 @@ Sections.GodMode:Dropdown({
     end,
 })
 
-Main.toggles["God Mode"] = Sections.GodMode:Toggle({
+Sections.GodMode:Toggle({
     Title = "God Mode",
     Desc = "Enable or disable god mode.",
     Flag = "GodMode",
@@ -3706,8 +3702,6 @@ Main.toggles["God Mode"] = Sections.GodMode:Toggle({
     Value = false,
     Callback = Main.godSet,
 })
-
-Main.hotkeyToggle(Sections.GodMode, "God Mode", "H", "Tap to become unkillable, tap again to take hits like normal.")
 
 Sections.GetTool:Toggle({
     Title = "Auto Get Tool",
@@ -3741,7 +3735,7 @@ Sections.WallHop:Input({
     Callback = function(v) Main.hopMargin = math.max(tonumber(v) or Main.hopMargin, 0) end,
 })
 
-Main.toggles["Wall Hop"] = Sections.WallHop:Toggle({
+Sections.WallHop:Toggle({
     Title = "Auto Wall Hop",
     Desc = "Enable or disable auto wall hop.",
     Flag = "AutoWallHop",
@@ -3753,19 +3747,13 @@ Main.toggles["Wall Hop"] = Sections.WallHop:Toggle({
     end,
 })
 
-Main.hotkeyToggle(Sections.WallHop, "Wall Hop", "K", "Tap to bounce off walls on its own, tap again to stop.")
-
 for _, k in ipairs(Main.flipKinds) do
-    k.Go = function() Main.flipRun(k.Dir) end
-
     Sections.Flip:Button({
         Title = k.Title,
         Desc = k.Desc,
         Icon = k.Icon,
-        Callback = k.Go,
+        Callback = function() Main.flipRun(k.Dir) end,
     })
-
-    Main.hotkey(Sections.Flip, k.Title, k.Hotkey, k.HotkeyDesc, k.Go)
 
     Sections.Flip:Toggle({
         Title = "Auto " .. k.Title,
@@ -3810,7 +3798,7 @@ Sections.Server:Input({
     Value = "",
     InputIcon = "hash",
     Type = "Input",
-    Placeholder = "Nhập ID server...",
+    Placeholder = "Enter server ID...",
     Callback = function(v) Main.srvId = (v:gsub("%s", "")) end,
 })
 
@@ -3849,7 +3837,7 @@ Sections.Server:Input({
     Value = tostring(Main.srvMinutes),
     InputIcon = "timer",
     Type = "Input",
-    Placeholder = "Nhập số phút...",
+    Placeholder = "Enter minutes...",
     Callback = function(v) Main.srvMinutes = Main.num(v) or Main.srvMinutes end,
 })
 
@@ -3871,7 +3859,7 @@ Sections.Server:Toggle({
     Callback = function(on) Main.srvAuto("Rejoin", on) end,
 })
 
-Main.toggles["Noclip"] = Sections.Character:Toggle({
+Sections.Character:Toggle({
     Title = "Noclip",
     Desc = "Walk through walls and objects.",
     Flag = "Noclip",
@@ -3880,9 +3868,7 @@ Main.toggles["Noclip"] = Sections.Character:Toggle({
     Callback = function(on) Main.mvNoclip = on end,
 })
 
-Main.hotkeyToggle(Sections.Character, "Noclip", "N", "Tap to slip through walls, tap again to go solid.")
-
-Main.toggles["Inf Jump"] = Sections.Character:Toggle({
+Sections.Character:Toggle({
     Title = "Inf Jump",
     Desc = "Jump again and again in mid-air.",
     Flag = "InfJump",
@@ -3891,22 +3877,18 @@ Main.toggles["Inf Jump"] = Sections.Character:Toggle({
     Callback = function(on) Main.mvInfJump = on end,
 })
 
-Main.hotkeyToggle(Sections.Character, "Inf Jump", "J", "Tap to keep jumping in mid-air, tap again to stop.")
-
 for _, r in ipairs({
-    { sec = Sections.WalkSpeed, rec = Main.mvProps.Walk, flag = "WalkSpeed", ph = "Nhập tốc độ...",
+    { sec = Sections.WalkSpeed, rec = Main.mvProps.Walk, flag = "WalkSpeed", ph = "Enter speed...",
       inTitle = "Walk Speed Value", inDesc = "Set your walking speed.", inFlag = "WalkSpeedValue",
       title = "Walk Speed", desc = "Enable custom walking speed.", icon = "footprints",
       key = "X", keyDesc = "Tap to sprint at your custom speed, tap again to slow down." },
-    { sec = Sections.JumpPower, rec = Main.mvProps.Jump, flag = "JumpPower", ph = "Nhập lực nhảy...",
+    { sec = Sections.JumpPower, rec = Main.mvProps.Jump, flag = "JumpPower", ph = "Enter jump power...",
       inTitle = "Jump Power Value", inDesc = "Set your jump power.", inFlag = "JumpPowerValue",
-      title = "Jump Power", desc = "Enable custom jump power.", icon = "arrow-up",
-      key = "U", keyDesc = "Tap to spring higher, tap again to jump normal." },
-    { sec = Sections.Swim, rec = Main.mvGlide.Swim, flag = "Swim", ph = "Nhập tốc độ...", glide = true,
+      title = "Jump Power", desc = "Enable custom jump power.", icon = "arrow-up" },
+    { sec = Sections.Swim, rec = Main.mvGlide.Swim, flag = "Swim", ph = "Enter speed...", glide = true,
       inTitle = "Swim Speed", inDesc = "Adjust your swimming movement speed.", inFlag = "SwimSpeed",
-      title = "Swim", desc = "Swim freely anywhere, even outside water.", icon = "waves",
-      key = "Z", keyDesc = "Tap to start swimming anywhere, tap again to stop." },
-    { sec = Sections.Fly, rec = Main.mvGlide.Fly, flag = "Fly", ph = "Nhập tốc độ bay...", glide = true,
+      title = "Swim", desc = "Swim freely anywhere, even outside water.", icon = "waves" },
+    { sec = Sections.Fly, rec = Main.mvGlide.Fly, flag = "Fly", ph = "Enter fly speed...", glide = true,
       inTitle = "Fly Speed", inDesc = "Adjust your flying speed.", inFlag = "FlySpeed",
       title = "Fly", desc = "Fly toward where your camera looks.", icon = "plane",
       key = "F", keyDesc = "Tap to lift off, tap again to land." },
@@ -3934,7 +3916,7 @@ for _, r in ipairs({
         end,
     })
 
-    Main.hotkeyToggle(r.sec, r.title, r.key, r.keyDesc)
+    if r.key then Main.hotkeyToggle(r.sec, r.title, r.key, r.keyDesc) end
 end
 
 Main.gravLabel = Sections.Gravity:Paragraph({
@@ -3980,20 +3962,17 @@ for _, e in ipairs({
       type = "Choose how players are highlighted across the world.",
       text = "Customize the information displayed above players.",
       color = "Personalize the visual appearance of player ESP.",
-      toggle = "Reveal players throughout the entire server.",
-      key = "Home", keyDesc = "Tap to see every player through walls, tap again to hide them." },
+      toggle = "Reveal players throughout the entire server." },
     { name = "Model", sec = Sections.EspModel, icon = "box",
       type = "Choose your preferred visualization for world models.",
       text = "Select which model information appears on screen.",
       color = "Customize the highlight color of detected models.",
-      toggle = "Reveal non-living models throughout the environment.",
-      key = "End", keyDesc = "Tap to outline objects around the map, tap again to clear them." },
+      toggle = "Reveal non-living models throughout the environment." },
     { name = "NPC", sec = Sections.EspNPC, icon = "eye",
       type = "Choose how NPCs are visually highlighted.",
       text = "Customize the information displayed for NPCs.",
       color = "Personalize the visual appearance of NPC ESP.",
-      toggle = "Reveal NPCs and track their presence in the environment.",
-      key = "Delete", keyDesc = "Tap to spot every NPC nearby, tap again to hide them." },
+      toggle = "Reveal NPCs and track their presence in the environment." },
 }) do
     local obj = Main["esp" .. e.name]
     local flag = e.name .. "_ESP"
@@ -4039,7 +4018,7 @@ for _, e in ipairs({
         end,
     })
 
-    Main.toggles[e.name .. " ESP"] = e.sec:Toggle({
+    e.sec:Toggle({
         Title = e.name .. " ESP",
         Desc = e.toggle,
         Flag = flag,
@@ -4050,12 +4029,11 @@ for _, e in ipairs({
             obj:Sync()
         end,
     })
-
-    Main.hotkeyToggle(e.sec, e.name .. " ESP", e.key, e.keyDesc)
 end
 
 Main.tpDrop = Sections.Teleport:Dropdown({
     Title = "Select Player",
+    Flag = "TeleportPlayer",
     Desc = "Choose a player to teleport to.",
     Values = Main.names(),
     AllowNone = true,
@@ -4069,18 +4047,18 @@ Sections.Teleport:Button({
     Callback = Main.tpToPlayer,
 })
 
-Main.hotkey(Sections.Teleport, "Teleport to Player", "Backslash", "Tap to warp right next to the player you selected.", Main.tpToPlayer)
-
 Main.tpPointDrop = Sections.Teleport:Dropdown({
     Title = "Saved Points",
+    Flag = "SavedPoint",
     Desc = "Choose one of your saved points.",
     Values = {},
     AllowNone = true,
     Callback = function(o) Main.tpPoint = o end,
 })
 
-Main.toggles["Free Cam"] = Sections.Teleport:Toggle({
+Main.freeToggle = Sections.Teleport:Toggle({
     Title = "Set Point Mode",
+    Flag = "SetPointMode",
     Desc = "Free cam: aim the center of the screen to choose a point.",
     Icon = "crosshair",
     Value = false,
@@ -4089,16 +4067,12 @@ Main.toggles["Free Cam"] = Sections.Teleport:Toggle({
     end,
 })
 
-Main.hotkeyToggle(Sections.Teleport, "Free Cam", "C", "Tap to send the camera flying to pick a spot, tap again to come back.")
-
 Sections.Teleport:Button({
     Title = "Set Point",
     Desc = "Save the aimed point in free cam, or your current position if free cam is off.",
     Icon = "map-pin",
     Callback = Main.tpPick,
 })
-
-Main.hotkey(Sections.Teleport, "Set Point", "T", "Tap to mark the spot you are aiming at.", Main.tpPick)
 
 Sections.Teleport:Button({
     Title = "Teleport to Point",
@@ -4107,9 +4081,7 @@ Sections.Teleport:Button({
     Callback = Main.tpToPoint,
 })
 
-Main.hotkey(Sections.Teleport, "Teleport to Point", "Y", "Tap to jump straight to the saved point you picked.", Main.tpToPoint)
-
-Main.toggles["Full Bright"] = Sections.Camera:Toggle({
+Sections.Camera:Toggle({
     Title = "Full Bright",
     Desc = "Illuminate the entire environment for better visibility.",
     Icon = "sun",
@@ -4118,9 +4090,7 @@ Main.toggles["Full Bright"] = Sections.Camera:Toggle({
     Callback = function(on) Main.fxOverride("FullBright", on, Main.fxTargets.FullBright) end,
 })
 
-Main.hotkeyToggle(Sections.Camera, "Full Bright", "L", "Tap to light up the whole map, tap again for normal light.")
-
-Main.toggles["No Fog"] = Sections.Camera:Toggle({
+Sections.Camera:Toggle({
     Title = "No Fog",
     Desc = "Remove environmental fog for clearer visibility.",
     Icon = "cloud-fog",
@@ -4128,8 +4098,6 @@ Main.toggles["No Fog"] = Sections.Camera:Toggle({
     Value = false,
     Callback = function(on) Main.fxOverride("NoFog", on, Main.fxTargets.NoFog) end,
 })
-
-Main.hotkeyToggle(Sections.Camera, "No Fog", "Semicolon", "Tap to wipe the fog away, tap again to bring it back.")
 
 Sections.Bypass:Toggle({
     Title = "Anti AFK",
@@ -4141,7 +4109,7 @@ Sections.Bypass:Toggle({
 })
 Main.fxAntiAFK(true)
 
-Main.toggles["Anti Fling"] = Sections.Bypass:Toggle({
+Sections.Bypass:Toggle({
     Title = "Anti Fling",
     Desc = "Protect your character from unwanted flinging.",
     Icon = "shield-check",
@@ -4149,8 +4117,6 @@ Main.toggles["Anti Fling"] = Sections.Bypass:Toggle({
     Value = false,
     Callback = Main.fxAntiFling,
 })
-
-Main.hotkeyToggle(Sections.Bypass, "Anti Fling", "Quote", "Tap to shrug off fling attempts, tap again to turn it off.")
 
 Sections.Bypass:Toggle({
     Title = "Anti Void",
