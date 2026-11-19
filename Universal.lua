@@ -2029,6 +2029,13 @@ function Main.glideUpdate()
     Main.mvVel.VectorVelocity = dir * cfg.Value
 end
 
+function Main.glideRestore(hum)
+    for s in pairs(Main.mvSaved) do
+        pcall(hum.SetStateEnabled, hum, s, true)
+    end
+    table.clear(Main.mvSaved)
+end
+
 function Main.glideStop()
     local cfg = Main.mvGlide[Main.mvMode]
     Main.mvMode = nil
@@ -2044,9 +2051,7 @@ function Main.glideStop()
     local hum = Main.mvHum
     if hum and hum.Parent then
         if cfg.Freeze then hum.AutoRotate = true end
-        for s, was in pairs(Main.mvSaved) do
-            pcall(hum.SetStateEnabled, hum, s, was)
-        end
+        Main.glideRestore(hum)
         if cfg.State and hum.Health > 0 then hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
     end
 
@@ -2061,8 +2066,8 @@ function Main.glideStart(name, hum, root)
     for _, s in ipairs(cfg.State and Enum.HumanoidStateType:GetEnumItems() or {}) do
         if s ~= cfg.State and not Main.mvSkip[s] then
             local ok, was = pcall(hum.GetStateEnabled, hum, s)
-            if ok then
-                Main.mvSaved[s] = was
+            if ok and was then
+                Main.mvSaved[s] = true
                 pcall(hum.SetStateEnabled, hum, s, false)
             end
         end
@@ -2160,6 +2165,8 @@ function Main.mvStep()
 
     local char, hum = Main.char()
     if not hum then return end
+
+    if not Main.mvMode and next(Main.mvSaved) then Main.glideRestore(hum) end
 
     for _, p in pairs(Main.mvProps) do
         if p.Wanted then
