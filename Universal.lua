@@ -19,7 +19,7 @@ local Camera = Workspace.CurrentCamera
 local Window
 
 localPlayer.CharacterAdded:Connect(function(c)
-    playerCharacter = c
+    if c:GetAttribute("NaNFake") ~= true then playerCharacter = c end
 end)
 
 local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/72msreal-pixel/WindUI/refs/heads/main/Main.luau"))()
@@ -98,8 +98,11 @@ function ESP:SetProp(obj, key, value)
 end
 
 function ESP:IsSelf(obj)
-    if obj == localPlayer or (playerCharacter and obj == playerCharacter) then return true end
-    return playerCharacter ~= nil and typeof(obj) == "Instance" and obj:IsDescendantOf(playerCharacter)
+    local drive = localPlayer.Character
+    if obj == localPlayer or obj == playerCharacter or obj == drive then return true end
+    if typeof(obj) ~= "Instance" then return false end
+    return (playerCharacter ~= nil and obj:IsDescendantOf(playerCharacter))
+        or (drive ~= nil and obj:IsDescendantOf(drive))
 end
 
 function ESP:GetLocalPosition()
@@ -541,7 +544,7 @@ local Main = {
             AutoDesc = "Keep flipping backward on repeat.",
         },
     },
-    srvId = "", srvMinutes = 30, srvJobs = {},
+    srvId = "", srvMinutes = 30, srvJobs = {}, voidUsers = {},
     mvNoclip = false, mvInfJump = false, mvSaved = {}, mvParts = {}, mvGlideConns = {},
     mvProps = {
         Walk = { Prop = "WalkSpeed", Value = 50, Wanted = false },
@@ -607,6 +610,20 @@ end
 function Main.char()
     local c = localPlayer.Character
     return c, c and c:FindFirstChildOfClass("Humanoid"), Main.root(c)
+end
+
+function Main.fake(c)
+    return c ~= nil and c:GetAttribute("NaNFake") == true
+end
+
+function Main.real()
+    if not Main.bpOn then return Main.char() end
+    local c, r, h = Main.bpGetReal()
+    return c, h, r
+end
+
+function Main.ghosting()
+    return Main.mvNoclip or Main.flJob ~= nil
 end
 
 function Main.alive(c)
@@ -729,11 +746,13 @@ Players.PlayerRemoving:Connect(function(p) task.defer(Main.refreshPlayers, p) en
 localPlayer.CharacterAdded:Connect(function(c)
     Main.flOrigCF, Main.flSince = nil, tick()
     Main.freeStop()
-    task.spawn(Main.toolOnChar, c)
+    if not Main.fake(c) and c ~= Main.bpRealChar then task.spawn(Main.toolOnChar, c) end
     task.spawn(Main.glideRespawn, c)
     task.spawn(Main.bpBind, c)
 end)
-localPlayer.CharacterRemoving:Connect(function() Main.toolDropAll() end)
+localPlayer.CharacterRemoving:Connect(function(c)
+    if not (Main.fake(c) or Main.bpOn) then Main.toolDropAll() end
+end)
 
 function Main.adLine()
     local t = Main.pick(Main.adLines)
@@ -1344,6 +1363,7 @@ function Main.godSet(on)
     if on then
         task.spawn(Main.godRun, playerCharacter, true)
         Main.godConn(localPlayer.CharacterAdded, function(c)
+            if Main.fake(c) then return end
             c:WaitForChild("Humanoid", 5)
             Main.godRun(c, true)
         end)
@@ -1368,8 +1388,13 @@ function Main.toolIsPress(input)
 end
 
 function Main.toolOwn(parent)
-    local c = localPlayer.Character
-    return parent ~= nil and (parent:IsDescendantOf(localPlayer) or (c ~= nil and (parent == c or parent:IsDescendantOf(c))))
+    if parent == nil then return false end
+    if parent:IsDescendantOf(localPlayer) then return true end
+
+    for _, c in ipairs({ localPlayer.Character, Main.bpRealChar }) do
+        if c and (parent == c or parent:IsDescendantOf(c)) then return true end
+    end
+    return false
 end
 
 function Main.toolPack(wait)
@@ -1554,8 +1579,8 @@ end
 function Main.toolClass:OnActive() end
 
 function Main.toolClass:Held()
-    local c = localPlayer.Character
-    return self.Tool ~= nil and c ~= nil and self.Tool.Parent == c
+    local parent = self.Tool and self.Tool.Parent
+    return parent ~= nil and (parent == localPlayer.Character or parent == Main.bpRealChar)
 end
 
 function Main.toolClass:SetActive(state)
@@ -1819,16 +1844,15 @@ function Main.hopStep()
     if now - Main.hopCheck < Main.hopInterval then return end
     Main.hopCheck = now
 
-    local hum = playerCharacter:FindFirstChildOfClass("Humanoid")
-    local root = playerCharacter:FindFirstChild("HumanoidRootPart")
+    local char, hum, root = Main.char()
 
     if not (hum and root) or hum.Health <= 0 then return end
     if hum.FloorMaterial ~= Enum.Material.Air then return end
     if now - Main.hopLast < Main.hopCooldown then return end
 
-    if Main.hopChar ~= playerCharacter then
-        Main.hopChar = playerCharacter
-        Main.hopParams.FilterDescendantsInstances = { playerCharacter }
+    if Main.hopChar ~= char then
+        Main.hopChar = char
+        Main.hopParams.FilterDescendantsInstances = { char, Main.bpRealChar }
     end
 
     local walls = 0
@@ -2029,11 +2053,13 @@ function Main.glideUpdate()
     Main.mvVel.VectorVelocity = dir * cfg.Value
 end
 
-function Main.glideRestore(hum)
-    for s in pairs(Main.mvSaved) do
-        pcall(hum.SetStateEnabled, hum, s, true)
+function Main.glideRestore()
+    for hum, states in pairs(Main.mvSaved) do
+        for s in pairs(states) do
+            pcall(hum.SetStateEnabled, hum, s, true)
+        end
+        Main.mvSaved[hum] = nil
     end
-    table.clear(Main.mvSaved)
 end
 
 function Main.glideStop()
@@ -2048,14 +2074,14 @@ function Main.glideStop()
         Main.mvAnimate = nil
     end
 
+    Main.glideRestore()
+
     local hum = Main.mvHum
     if hum and hum.Parent then
         if cfg.Freeze then hum.AutoRotate = true end
-        Main.glideRestore(hum)
         if cfg.State and hum.Health > 0 then hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
     end
 
-    table.clear(Main.mvSaved)
     Main.mvHum = nil
 end
 
@@ -2063,11 +2089,13 @@ function Main.glideStart(name, hum, root)
     local cfg = Main.mvGlide[name]
     Main.mvMode, Main.mvHum = name, hum
 
+    Main.mvSaved[hum] = Main.mvSaved[hum] or {}
+
     for _, s in ipairs(cfg.State and Enum.HumanoidStateType:GetEnumItems() or {}) do
         if s ~= cfg.State and not Main.mvSkip[s] then
             local ok, was = pcall(hum.GetStateEnabled, hum, s)
             if ok and was then
-                Main.mvSaved[s] = true
+                Main.mvSaved[hum][s] = true
                 pcall(hum.SetStateEnabled, hum, s, false)
             end
         end
@@ -2163,10 +2191,11 @@ function Main.mvStep()
         Main.gravStatus()
     end
 
-    local char, hum = Main.char()
-    if not hum then return end
+    local char, drive = Main.char()
+    local _, hum = Main.real()
+    if not (drive and hum) then return end
 
-    if not Main.mvMode and next(Main.mvSaved) then Main.glideRestore(hum) end
+    if not Main.mvMode and next(Main.mvSaved) then Main.glideRestore() end
 
     for _, p in pairs(Main.mvProps) do
         if p.Wanted then
@@ -2661,6 +2690,14 @@ Main.fxTargets = {
     end,
 }
 
+function Main.voidGuard(key, on)
+    local was = next(Main.voidUsers) ~= nil
+    Main.voidUsers[key] = on or nil
+
+    local now = next(Main.voidUsers) ~= nil
+    if now ~= was then Main.fxOverride("AntiVoid", now, Main.fxTargets.AntiVoid) end
+end
+
 function Main.fxAntiAFK(on)
     Main.listen("AntiAFK", on, localPlayer.Idled, function()
         VirtualUser:CaptureController()
@@ -2798,6 +2835,7 @@ Main.bpFakeHRP = Main.new("Part", {
 }, Main.bpFakeChar)
 Main.bpFakeHum = Main.new("Humanoid", {}, Main.bpFakeChar)
 Main.bpFakeChar.PrimaryPart = Main.bpFakeHRP
+Main.bpFakeChar:SetAttribute("NaNFake", true)
 
 function Main.bpGetReal()
     local ch = Main.bpRealChar
@@ -2860,7 +2898,7 @@ function Main.bpEnter(hrp, hum)
     end
     fh.WalkSpeed = hum.WalkSpeed
     fh.JumpPower = hum.JumpPower
-    Main.bpFakeHRP.CanCollide = true
+    Main.bpFakeHRP.CanCollide = not Main.ghosting()
     hum.PlatformStand = true
     if localPlayer.Character ~= fake then localPlayer.Character = fake end
     if Camera then Camera.CameraSubject = fh end
@@ -2879,8 +2917,8 @@ function Main.bpRestore(char, hum)
 end
 
 function Main.bpToggle(on)
-    local was = Main.bpOn
     Main.bpOn = on
+    Main.voidGuard("AntiFallDamage", on)
     Main.listen("BypassStep", false)
 
     local char, hrp, hum = Main.bpGetReal()
@@ -2888,14 +2926,13 @@ function Main.bpToggle(on)
         if char and hrp and hum then Main.bpEnter(hrp, hum) end
         Main.listen("BypassStep", true, RunService.RenderStepped, Main.bpStep)
     else
-        if was then Workspace.FallenPartsDestroyHeight = -500 end
         if localPlayer.Character == Main.bpFakeChar and char then Main.bpRestore(char, hum) end
         Main.bpFakeChar.Parent = nil
     end
 end
 
 function Main.bpBind(char)
-    if char == Main.bpFakeChar or char.Name:find("FAKE") then return end
+    if Main.fake(char) then return end
 
     Main.bpRealChar = char
     Main.bpTracks, Main.bpCur = {}, nil
@@ -2915,9 +2952,9 @@ end
 function Main.bpUnload()
     Main.listen("BypassStep", false)
     Main.listen("BypassDied", false)
+    Main.voidGuard("AntiFallDamage", false)
     pcall(function()
         if localPlayer.Character == Main.bpFakeChar then Main.bpRestore(Main.bpRealChar, Main.bpRealHum) end
-        Workspace.FallenPartsDestroyHeight = -500
     end)
     pcall(Main.bpFakeChar.Destroy, Main.bpFakeChar)
 end
@@ -2925,8 +2962,6 @@ end
 function Main.bpStep()
     local char, hrp, hum = Main.bpGetReal()
     local fh, fhrp = Main.bpFakeHum, Main.bpFakeHRP
-
-    Workspace.FallenPartsDestroyHeight = 0 / 0
 
     if char and hrp and hum and not Main.bpRespawning then
         Main.bpEnter(hrp, hum)
@@ -3264,7 +3299,7 @@ WindUI:Localization({
             Troll = "Troll",
             Misc = "Misc",
             Settings = "Settings",
-            UpdateDesc = "- Hotkeys for fling, camlock, speed and fly \n- Theme dropdown in Settings \n- Menu key you can rebind \n- Fix config list not updating",
+            UpdateDesc = "- Hotkeys for fling, camlock, speed and fly \n- Theme dropdown in Settings \n- Menu key you can rebind \n- Fix config list not updating \n- Anti Fall Damage now works with every feature",
             InformationDesc = "About the hub",
             MainDesc = "Main features",
             StaminaDesc = "Stamina options",
@@ -4131,7 +4166,7 @@ Sections.Bypass:Toggle({
     Icon = "atom",
     Flag = "AntiVoid",
     Value = false,
-    Callback = function(on) Main.fxOverride("AntiVoid", on, Main.fxTargets.AntiVoid) end,
+    Callback = function(on) Main.voidGuard("AntiVoid", on) end,
 })
 
 Sections.Bypass:Toggle({
